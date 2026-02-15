@@ -98,9 +98,10 @@ try:
         st.write(f"**Driver principale:** {'REAL YIELD' if s_ry >= s_move else 'MOVE'}")
     
     with col2:
+        # Calcolo esatto dello Stress Test come da tua formula: F13 - C13 + (-1)
         stress_val = total_score - s_move - 1
-        st.metric("STRESS TEST (MOVE 130)", f"{stress_score:.0f}")
-        st.markdown(f"**Resilienza:** {'⚠️ VULNERABILE' if stress_val <= 0 else '✅ RESILIENTE'}")
+        st.metric("STRESS TEST (MOVE 130)", f"{stress_val:.0f}")
+        st.markdown(f"**Resilienza:** {'⚠️ VULNERABILE' if stress_val <= 0 else '✅ RESILIENTE'}"))
 
     st.divider()
 
