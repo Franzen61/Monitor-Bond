@@ -79,13 +79,25 @@ try:
         else: target = "4-6 anni (Neutrale)"
         st.subheader(f"🎯 Target: {target}")
         
+        # --- DRIVER RENDIMENTO (Nuova Sezione) ---
+        if s_inf < 0 and s_ry <= 0:
+            driver_txt = "🔴 PREMIO INFLAZIONE (rischio duration)"
+        elif s_inf >= 0 and s_ry > 0:
+            driver_txt = "🟠 PREMIO TERM / DEBITO (duration penalizzata)"
+        else:
+            driver_txt = "🟢 REAL YIELD SANO (regime equilibrato)"
+        
+        st.markdown(f"**Driver Rendimento:** {driver_txt}")
+        
         reg_move_txt = "⚠️ REGIME DIPENDENTE DAL MOVE" if s_move < 1 else "✅ REGIME ROBUSTO"
-        st.caption(f"Status: {reg_move_txt}")
+        st.caption(f"Status Volatilità: {reg_move_txt}")
     
     with c2:
-        stress_val = total_score - s_move - 1
+        # Calcolo allineato al Foglio Google: (Total Score - Move Score) - 1
+        stress_val = (total_score - s_move) - 1
         st.metric("STRESS TEST (MOVE 130)", f"{stress_val:.0f}")
-        st.markdown(f"**Resilienza:** {'⚠️ VULNERABILE' if stress_val <= 0 else '✅ RESILIENTE'}")
+        resilienza = "✅ RESILIENTE" if stress_val > 0 else "⚠️ VULNERABILE"
+        st.markdown(f"**Status:** {resilienza}")
 
     # --- METRICHE PRINCIPALI ---
     st.divider()
@@ -96,7 +108,7 @@ try:
     elif sig_stab > 0.7: stab_txt = "🟢 REGIME COERENTE"
     else: stab_txt = "🟡 REGIME MODERATAMENTE COERENTE"
     r2.metric("Signal Stability", f"{sig_stab:.1%}")
-    st.caption(f"Trend: {stab_txt}")
+    st.caption(f"Trend: {stab_txt} ({sig_stab:.0%})")
     
     r3.metric("Eff. Dur. Conf.", f"{eff_dur_conf:.1%}")
 
@@ -129,10 +141,9 @@ try:
         fig_be.update_layout(title="Aspettative Inflazione (Breakeven)", template="plotly_dark", height=300, margin=dict(l=20,r=20,t=40,b=20))
         st.plotly_chart(fig_be, width='stretch')
 
-    # --- GUIDA STRATEGICA (In fondo, richiudibile) ---
+    # --- GUIDA STRATEGICA ---
     st.divider()
     
-    # Analisi Dinamica Automatica
     if dur_conf > 0.6 and sig_stab < 0.4:
         reg_txt = "🚀 FASE INIZIALE: Confidence Alta / Stabilità Bassa. Opportunità di accumulo graduale."
     elif dur_conf > 0.6 and sig_stab > 0.7:
