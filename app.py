@@ -96,8 +96,7 @@ try:
         s_curve +
         s_ry +
         s_tips +
-        s_mom +
-        s_equity
+        s_mom 
     )
 
     # =============================
