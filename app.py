@@ -10,6 +10,15 @@ fred = Fred(api_key=FRED_API_KEY)
 
 st.set_page_config(page_title="Professional Bond Monitor", layout="wide")
 
+# --- CSS Personalizzato ---
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; }
+    .stMetric { border: 1px solid #31333F; padding: 10px; border-radius: 10px; }
+    div[data-testid="stExpander"] { border: 1px solid #31333F; background-color: #161b22; margin-top: 20px; }
+    </style>
+    """, unsafe_allow_html=True)
+
 @st.cache_data(ttl=3600)
 def fetch_data():
     # 1. Dati da FRED
@@ -25,7 +34,7 @@ def fetch_data():
     pce_3m = ((pce_idx.iloc[-4] / pce_idx.iloc[-16]) - 1) * 100
     delta_inf = pce_now - pce_3m
     
-    # 3. Yahoo Finance
+    # 3. Yahoo Finance (^MOVE Index, IEF, SPY, TIP)
     move_data = yf.Ticker("^MOVE").history(period="120d")
     move_curr = move_data['Close'].iloc[-1]
     move_3m_avg = move_data['Close'].tail(90).mean()
@@ -45,12 +54,9 @@ def fetch_data():
 try:
     d = fetch_data()
     
-    # --- LOGICA SCORE CORRETTA ---
+    # --- LOGICA SCORE ---
     s_inf = 1 if d['delta_inf'] < -0.003 else (-1 if d['delta_inf'] > 0.003 else 0)
-    
-    # CORREZIONE: Lo score del MOVE deve basarsi sulla media 3M (d['move_avg'])
     s_move = 1 if d['move_avg'] < 70 else (-1 if d['move_avg'] > 90 else 0)
-    
     s_curve = 1 if d['curve'] < 0.1 else (-1 if d['curve'] > 1 else 0)
     s_ry = 1 if d['ry'] > 1.8 else (-1 if d['ry'] < 0.5 else 0)
     s_tips = 1 if d['tips_var'] < -0.02 else (-1 if d['tips_var'] > 0.02 else 0)
@@ -60,7 +66,7 @@ try:
     total_score = s_inf + s_move + s_curve + s_ry + s_mom + s_tips + s_equity
 
     # --- HEADER ---
-    st.title("🛡️ Bond Monitor Strategico")
+    st.title("🛡️ Bond Monitor Strategico (Full Auto)")
     
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
@@ -70,37 +76,75 @@ try:
         else: target = "4-6 anni (Neutrale)"
         st.subheader(f"🎯 Target: {target}")
         
-        # Driver Rendimento
+        # Driver Rendimento dinamico
         if s_inf < 0 and s_ry <= 0:
-            driver_txt = "🔴 PREMIO INFLAZIONE"
+            driver_txt = "🔴 PREMIO INFLAZIONE (rischio duration)"
         elif s_inf >= 0 and s_ry > 0:
-            driver_txt = "🟠 PREMIO TERM / DEBITO"
+            driver_txt = "🟠 PREMIO TERM / DEBITO (duration penalizzata)"
         else:
-            driver_txt = "🟢 REAL YIELD SANO"
+            driver_txt = "🟢 REAL YIELD SANO (regime equilibrato)"
         st.markdown(f"**Driver:** {driver_txt}")
         st.caption(f"MOVE Index: {d['move_val']:.2f} | Media 3M: {d['move_avg']:.2f}")
 
     with c2:
         st.metric("TOTAL SCORE", f"{total_score}")
-        st.caption(f"MOVE Score (on Avg): {s_move}")
+        st.caption(f"MOVE Score (3M Avg): {s_move}")
 
     with c3:
-        # Calcolo GS: Total - Move_Score - 1
+        # Calcolo Stress Test corretto: Total Score - MOVE Score - 1
         stress_val = int(total_score) - int(s_move) - 1
         st.metric("STRESS TEST MOVE", f"{stress_val}")
-        resilienza = "✅ ROBUSTO" if stress_val > 0 else "⚠️ VULNERABILE"
+        resilienza = "✅ REGIME ROBUSTO" if stress_val > 0 else "⚠️ DIPENDENTE DAL MOVE"
         st.markdown(f"**Status:** {resilienza}")
 
-    # --- TABELLA DETTAGLIO SCORE ---
-    with st.expander("📊 Dettaglio Fattori Score"):
-        scores = {
-            "Fattore": ["Inflazione (PCE)", "Volatilità (MOVE)", "Curva (10-2)", "Real Yield", "Momentum (IEF)", "TIPS Var", "Equity (SPY)"],
-            "Valore": [f"{d['delta_inf']:.1%}", f"{d['move_avg']:.1f}", f"{d['curve']:.2f}", f"{d['ry']:.2f}%", f"{d['ief_mom']:.1%}", f"{d['tips_var']:.1%}", f"{d['spy_var']:.1%}"],
-            "Score": [s_inf, s_move, s_curve, s_ry, s_mom, s_tips, s_equity]
-        }
-        st.table(pd.DataFrame(scores))
+    # --- METRICHE E DETTAGLIO ---
+    st.divider()
+    r1, r2, r3 = st.columns(3)
+    dur_conf = ((total_score + 6) / 12) * (1 + s_ry * 0.15)
+    sig_stab = abs(total_score) / 6
+    eff_dur_conf = dur_conf * (0.5 + sig_stab * 0.5)
 
-    # ... (resto del codice per metriche e grafici) ...
+    r1.metric("Duration Confidence", f"{dur_conf:.1%}")
+    r2.metric("Signal Stability", f"{sig_stab:.1%}")
+    r3.metric("Eff. Dur. Conf.", f"{eff_dur_conf:.1%}")
+
+    # --- TABELLA SCORE ---
+    with st.expander("📊 Dettaglio Fattori Score"):
+        df_scores = pd.DataFrame({
+            "Fattore": ["Inflazione", "Volatilità (MOVE)", "Curva", "Real Yield", "Momentum", "TIPS", "Equity"],
+            "Valore": [f"{d['delta_inf']:.2f}", f"{d['move_avg']:.1f}", f"{d['curve']:.2f}", f"{d['ry']:.2f}%", f"{d['ief_mom']:.2%}", f"{d['tips_var']:.2%}", f"{d['spy_var']:.2%}"],
+            "Score": [s_inf, s_move, s_curve, s_ry, s_mom, s_tips, s_equity]
+        })
+        st.table(df_scores)
+
+    # --- FILTRI ---
+    st.divider()
+    st.subheader("🔍 Stato Filtri e Analisi")
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        behr = "🟢 HEDGE ATTIVO" if (s_inf >= 0 and s_ry >= 0 and eff_dur_conf >= 0.55) else "⚠️ HEDGE DEBOLE"
+        st.write(f"**Behr Status:** {behr}")
+        st.write(f"**Dec.Bond Eq:** {'🟢 FAVOREVOLE' if d['ry']>0 and d['delta_inf']<=0 else '🟡 DEBOLE'}")
+    with f2:
+        st.write(f"**Breakeven:** {d['be']:.2f}% ({'✅ OK' if 1.5<d['be']<3 else '⚠️ ALERT'})")
+        st.write(f"**Unemployment:** {d['unemp']}% ({'✅ Normale' if d['unemp']<4.5 else '🚨 ALERT'})")
+    with f3:
+        st.write(f"**Filtro Equity:** {'🚨 PANICO' if s_equity == 1 else '✅ Stabile'}")
+        st.write(f"**Convessità:** {'Adeguata' if d['ry'] > 1.8 else 'Ridotta'}")
+
+    # --- GRAFICI ---
+    st.divider()
+    g1, g2 = st.columns(2)
+    with g1:
+        fig_ry = go.Figure()
+        fig_ry.add_trace(go.Scatter(x=d['ry_hist'].index, y=d['ry_hist'].values, name="Real Yield", line=dict(color='#00ff00')))
+        fig_ry.update_layout(title="Andamento Real Yield 10Y", template="plotly_dark", height=300, margin=dict(l=20,r=20,t=40,b=20))
+        st.plotly_chart(fig_ry, width='stretch')
+    with g2:
+        fig_be = go.Figure()
+        fig_be.add_trace(go.Scatter(x=d['be_hist'].index, y=d['be_hist'].values, name="Breakeven", line=dict(color='#00bfff')))
+        fig_be.update_layout(title="Aspettative Inflazione", template="plotly_dark", height=300, margin=dict(l=20,r=20,t=40,b=20))
+        st.plotly_chart(fig_be, width='stretch')
 
 except Exception as e:
-    st.error(f"Errore: {e}")
+    st.error(f"Errore nel caricamento: {e}")
