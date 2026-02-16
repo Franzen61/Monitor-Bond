@@ -238,7 +238,8 @@ s_tips = 1 if d['tips_var'] < -0.02 else (-1 if d['tips_var'] > 0.02 else 0)
 s_mom = -1 if d['ief_mom'] < -0.015 else (1 if d['ief_mom'] > 0.008 else 0)
 s_equity = 1 if d['spy_var'] < -0.05 else 0
 
-total_score = s_inf + s_move + s_curve + s_ry + s_tips + s_mom + s_equity
+# Total Score: 6 componenti (Equity è filtro separato, NON entra nel total)
+total_score = s_inf + s_move + s_curve + s_ry + s_tips + s_mom
 
 # ============================================================================
 # CALCOLO RATIOS
