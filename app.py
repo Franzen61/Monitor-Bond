@@ -51,10 +51,6 @@ st.markdown("""
 def get_cleveland_nowcast():
     """
     Scrapa Core PCE Year-over-Year da Cleveland Fed Inflation Nowcasting
-    
-    Returns:
-        dict: Dizionario con valore, mese, data aggiornamento
-        None: Se scraping fallisce
     """
     url = "https://www.clevelandfed.org/indicators-and-data/inflation-nowcasting"
     
@@ -72,25 +68,21 @@ def get_cleveland_nowcast():
         if len(tables) < 2:
             return None
         
-        # La seconda tabella contiene Year-over-Year data
         yoy_table = tables[1]
         rows = yoy_table.find_all('tr')
         
         if len(rows) < 2:
             return None
         
-        # Prima riga con dati (mese più recente)
         latest_row = rows[1]
         cells = latest_row.find_all('td')
         
         if len(cells) < 6:
             return None
         
-        # Estrai valori
         month = cells[0].text.strip()
         core_pce_yoy_text = cells[4].text.strip()
         
-        # Gestisci celle vuote
         if not core_pce_yoy_text or core_pce_yoy_text == '':
             latest_row = rows[2]
             cells = latest_row.find_all('td')
@@ -124,6 +116,31 @@ def get_var(ticker, days=30):
     
     except Exception as e:
         return 0
+
+
+def get_move_data():
+    """
+    Scarica MOVE Index e calcola media 3 mesi
+    """
+    try:
+        move_ticker = yf.Ticker("^MOVE")
+        move_history = move_ticker.history(period="6mo")['Close']
+        
+        if move_history.empty:
+            st.warning("⚠️ MOVE Index non disponibile, uso valore stimato")
+            return 70.0, pd.Series([70]*90), 70.0
+        
+        # Valore attuale
+        move_current = move_history.iloc[-1]
+        
+        # Media mobile 3 mesi (circa 63 giorni lavorativi)
+        move_3m_avg = move_history.rolling(window=63, min_periods=30).mean().iloc[-1]
+        
+        return move_current, move_history, move_3m_avg
+        
+    except Exception as e:
+        st.error(f"❌ Errore scaricamento MOVE: {e}")
+        return 70.0, pd.Series([70]*90), 70.0
 
 
 @st.cache_data(ttl=3600)
@@ -163,6 +180,9 @@ def fetch_data():
         pce_3m_ago = ((pce_idx.iloc[-4] / pce_idx.iloc[-16]) - 1) * 100
         delta_inf = pce_current - pce_3m_ago
         
+        # MOVE INDEX
+        move_current, move_history, move_3m_avg = get_move_data()
+        
         # YAHOO FINANCE
         ief_mom = get_var("IEF", days=30)
         spy_var = get_var("SPY", days=30)
@@ -182,7 +202,10 @@ def fetch_data():
             "curve": dgs10 - dgs2,
             "ief_mom": ief_mom,
             "spy_var": spy_var,
-            "tips_var": tips_var
+            "tips_var": tips_var,
+            "move_current": move_current,
+            "move_3m_avg": move_3m_avg,
+            "move_history": move_history
         }
     
     except Exception as e:
@@ -201,31 +224,14 @@ except Exception as e:
     st.stop()
 
 # ============================================================================
-# SIDEBAR - PARAMETRI MANUALI
-# ============================================================================
-
-st.sidebar.header("⚙️ Parametri Live")
-st.sidebar.markdown("---")
-
-move_val = st.sidebar.number_input(
-    "MOVE Index", 
-    value=70.01,
-    min_value=0.0,
-    max_value=200.0,
-    step=0.1,
-    help="Indice di volatilità bond market. Aggiorna manualmente."
-)
-
-st.sidebar.markdown("---")
-st.sidebar.caption(f"💾 Cache aggiornata ogni ora")
-st.sidebar.caption(f"🕐 Ultimo refresh: {datetime.now().strftime('%H:%M:%S')}")
-
-# ============================================================================
 # CALCOLO SCORE COMPONENTI
 # ============================================================================
 
 s_inf = 1 if d['delta_inf'] < -0.003 else (-1 if d['delta_inf'] > 0.003 else 0)
-s_move = -1 if move_val > 90 else (1 if move_val < 70 else 0)
+
+# MOVE Score usa MEDIA 3 MESI (come Excel)
+s_move = -1 if d['move_3m_avg'] > 90 else (1 if d['move_3m_avg'] < 70 else 0)
+
 s_curve = 1 if d['curve'] < 0.1 else (-1 if d['curve'] > 1 else 0)
 s_ry = 1 if d['ry'] > 1.8 else (-1 if d['ry'] < 0.5 else 0)
 s_tips = 1 if d['tips_var'] < -0.02 else (-1 if d['tips_var'] > 0.02 else 0)
@@ -241,7 +247,9 @@ total_score = s_inf + s_move + s_curve + s_ry + s_tips + s_mom + s_equity
 dur_conf = ((total_score + 6) / 12) * (1 + s_ry * 0.15)
 sig_stab = abs(total_score) / 6
 eff_dur_conf = dur_conf * (0.5 + sig_stab * 0.5)
-stress_val = (total_score - s_move) - 1
+
+# STRESS TEST: Formula Excel = Total Score - MOVE Score - 1
+stress_val = total_score - s_move - 1
 
 # ============================================================================
 # HEADER DASHBOARD
@@ -258,7 +266,6 @@ st.markdown("---")
 col_score, col_target, col_stress = st.columns([1, 2, 1])
 
 with col_score:
-    # Determina colore e label score
     if total_score >= 3:
         score_emoji = "🟢"
         score_label = "FORTE"
@@ -296,7 +303,6 @@ with col_score:
     """, unsafe_allow_html=True)
 
 with col_target:
-    # Determina target duration
     if total_score >= 3:
         target_duration = "15-20+ anni"
         target_style = "Aggressivo - All-in Duration"
@@ -328,7 +334,6 @@ with col_target:
     </div>
     """, unsafe_allow_html=True)
     
-    # Driver Rendimento
     if s_inf < 0 and s_ry <= 0:
         driver_txt = "🔴 PREMIO INFLAZIONE"
         driver_detail = "Rischio duration elevato"
@@ -342,12 +347,11 @@ with col_target:
     st.markdown(f"**Driver Rendimento:** {driver_txt}")
     st.caption(driver_detail)
     
-    # Status Volatilità
     reg_move_txt = "⚠️ REGIME DIPENDENTE DAL MOVE" if s_move < 1 else "✅ REGIME ROBUSTO"
     st.caption(f"Status Volatilità: {reg_move_txt}")
+    st.caption(f"MOVE 3M Avg: {d['move_3m_avg']:.1f} | Current: {d['move_current']:.1f}")
 
 with col_stress:
-    # Stress Test
     resilienza = "✅ RESILIENTE" if stress_val > 0 else "⚠️ VULNERABILE"
     stress_color = "#00ff00" if stress_val > 0 else "#ff6b6b"
     
@@ -435,7 +439,7 @@ breakdown_data = {
     'Fattore': [
         '💹 Inflation (Delta 3M)',
         '💰 Real Yield',
-        '📈 MOVE Volatility',
+        '📈 MOVE 3M Avg',
         '〰️ Curve 10Y-2Y',
         '🛡️ TIPS Momentum',
         '📊 IEF Momentum',
@@ -444,7 +448,7 @@ breakdown_data = {
     'Valore Attuale': [
         f"{d['delta_inf']:.2%}",
         f"{d['ry']:.2f}%",
-        f"{move_val:.1f}",
+        f"{d['move_3m_avg']:.1f}",
         f"{d['curve']:.2f}%",
         f"{d['tips_var']:.2%}",
         f"{d['ief_mom']:.2%}",
@@ -478,7 +482,6 @@ st.dataframe(
     hide_index=True
 )
 
-# Info fonte PCE
 if d['pce_age'] <= 7:
     pce_status = "✅"
 elif d['pce_age'] <= 30:
@@ -494,100 +497,118 @@ if d['pce_age'] > 45:
 st.markdown("---")
 
 # ============================================================================
-# SEZIONE 4: GRAFICO TOTAL SCORE STORICO
+# SEZIONE 4: GRAFICI TOTAL SCORE + MOVE STORICO
 # ============================================================================
 
-st.subheader("📈 Evoluzione Total Score (Simulato - 90 giorni)")
-
-# Simulazione (sostituire con dati reali in produzione)
-date_range = pd.date_range(end=pd.Timestamp.now(), periods=90, freq='D')
-np.random.seed(42)
-score_simulated = np.random.randint(-3, 5, size=90)
-score_simulated = pd.Series(score_simulated).rolling(7, center=True).mean().fillna(method='bfill').fillna(method='ffill').values
-score_simulated = np.round(score_simulated).astype(int)
-score_simulated[-1] = total_score
-
-fig_score = go.Figure()
-
-fig_score.add_trace(go.Scatter(
-    x=date_range,
-    y=score_simulated,
-    mode='lines+markers',
-    name='Total Score',
-    line=dict(color='#00bfff', width=3),
-    fill='tozeroy',
-    fillcolor='rgba(0,191,255,0.2)',
-    marker=dict(size=4)
-))
-
-fig_score.add_hline(y=3, line_dash="dash", line_color="green", annotation_text="Aggressivo (+3)", annotation_position="right")
-fig_score.add_hline(y=1, line_dash="dot", line_color="orange", annotation_text="Moderato (+1)", annotation_position="right")
-fig_score.add_hline(y=-1, line_dash="dot", line_color="orange", annotation_text="Difensivo (-1)", annotation_position="right")
-fig_score.add_hline(y=0, line_dash="solid", line_color="gray", line_width=1)
-
-fig_score.update_layout(
-    title={
-        'text': "Total Score - Identificazione Fase di Regime",
-        'x': 0.5,
-        'xanchor': 'center'
-    },
-    template="plotly_dark",
-    height=450,
-    yaxis=dict(range=[-6, 6], title="Score", tickmode='linear', tick0=-6, dtick=1),
-    xaxis_title="Data",
-    margin=dict(l=20, r=20, t=60, b=20),
-    hovermode='x unified',
-    showlegend=False
-)
-
-st.plotly_chart(fig_score, use_container_width=True)
-
-score_trend_7d = score_simulated[-1] - score_simulated[-7]
-if score_trend_7d > 0:
-    trend_emoji = "📈"
-    trend_txt = "in salita"
-elif score_trend_7d < 0:
-    trend_emoji = "📉"
-    trend_txt = "in discesa"
-else:
-    trend_emoji = "➡️"
-    trend_txt = "stabile"
-
-st.caption(f"**Trend 7 giorni:** {trend_emoji} {trend_txt} ({score_trend_7d:+.0f} punti) | "
-           f"**Media 30gg:** {np.mean(score_simulated[-30:]):.1f} | "
-           f"**Volatilità:** {np.std(score_simulated[-30:]):.1f}")
-
-st.info("""
-**💡 Come interpretare il grafico:**
-- **Score crescente** = Regime sta diventando favorevole (accumulo graduale)
-- **Score alto e stabile** = Regime maturo, movimento già prezzato
-- **Score in discesa** = Deterioramento condizioni
-- **Score vicino a soglie** = Possibili cambi di regime
-""")
-
-st.markdown("---")
-
-# ============================================================================
-# SEZIONE 5: GRAFICI REAL YIELD & BREAKEVEN
-# ============================================================================
-
-st.subheader("📊 Analisi Storica - Real Yield & Breakeven")
+st.subheader("📈 Evoluzione Indicatori")
 
 g1, g2 = st.columns(2)
 
 with g1:
+    st.markdown("#### Total Score (Simulato - 90 giorni)")
+    
+    # Simulazione (sostituire con dati reali in produzione)
+    date_range = pd.date_range(end=pd.Timestamp.now(), periods=90, freq='D')
+    np.random.seed(42)
+    score_simulated = np.random.randint(-3, 5, size=90)
+    score_simulated = pd.Series(score_simulated).rolling(7, center=True).mean().fillna(method='bfill').fillna(method='ffill').values
+    score_simulated = np.round(score_simulated).astype(int)
+    score_simulated[-1] = total_score
+    
+    fig_score = go.Figure()
+    
+    fig_score.add_trace(go.Scatter(
+        x=date_range,
+        y=score_simulated,
+        mode='lines',
+        name='Total Score',
+        line=dict(color='#00bfff', width=2)
+    ))
+    
+    fig_score.add_hline(y=3, line_dash="dash", line_color="green", line_width=1)
+    fig_score.add_hline(y=1, line_dash="dot", line_color="orange", line_width=1)
+    fig_score.add_hline(y=-1, line_dash="dot", line_color="orange", line_width=1)
+    fig_score.add_hline(y=0, line_dash="solid", line_color="gray", line_width=1)
+    
+    fig_score.update_layout(
+        template="plotly_dark",
+        height=350,
+        yaxis=dict(range=[-6, 6], title="Score"),
+        xaxis_title="Data",
+        margin=dict(l=20, r=20, t=20, b=20),
+        showlegend=False
+    )
+    
+    st.plotly_chart(fig_score, use_container_width=True)
+    
+    score_trend_7d = score_simulated[-1] - score_simulated[-7]
+    trend_txt = "📈 salita" if score_trend_7d > 0 else ("📉 discesa" if score_trend_7d < 0 else "➡️ stabile")
+    st.caption(f"Trend 7gg: {trend_txt} ({score_trend_7d:+.0f}) | Media 30gg: {np.mean(score_simulated[-30:]):.1f}")
+
+with g2:
+    st.markdown("#### MOVE Index Volatility (6 mesi)")
+    
+    fig_move = go.Figure()
+    
+    fig_move.add_trace(go.Scatter(
+        x=d['move_history'].index,
+        y=d['move_history'].values,
+        mode='lines',
+        name='MOVE Index',
+        line=dict(color='#ff6b6b', width=2)
+    ))
+    
+    # Media mobile 3 mesi
+    move_ma = d['move_history'].rolling(window=63, min_periods=30).mean()
+    fig_move.add_trace(go.Scatter(
+        x=move_ma.index,
+        y=move_ma.values,
+        mode='lines',
+        name='3M Average',
+        line=dict(color='#ffa500', width=2, dash='dash')
+    ))
+    
+    fig_move.add_hline(y=90, line_dash="dot", line_color="red", line_width=1)
+    fig_move.add_hline(y=70, line_dash="dot", line_color="green", line_width=1)
+    
+    fig_move.update_layout(
+        template="plotly_dark",
+        height=350,
+        yaxis_title="MOVE Index",
+        xaxis_title="Data",
+        margin=dict(l=20, r=20, t=20, b=20),
+        showlegend=True,
+        legend=dict(x=0.02, y=0.98)
+    )
+    
+    st.plotly_chart(fig_move, use_container_width=True)
+    
+    st.caption(f"Current: {d['move_current']:.1f} | 3M Avg: {d['move_3m_avg']:.1f}")
+
+st.markdown("---")
+
+# ============================================================================
+# SEZIONE 5: GRAFICI REAL YIELD & BREAKEVEN (PULITI)
+# ============================================================================
+
+st.subheader("📊 Analisi Storica - Real Yield & Breakeven")
+
+g3, g4 = st.columns(2)
+
+with g3:
     fig_ry = go.Figure()
+    
+    # Solo linea, nessun fill
     fig_ry.add_trace(go.Scatter(
         x=d['ry_hist'].index,
         y=d['ry_hist'].values,
+        mode='lines',
         name="Real Yield 10Y",
-        line=dict(color='#00ff00', width=2),
-        fill='tozeroy',
-        fillcolor='rgba(0,255,0,0.1)'
+        line=dict(color='#00ff00', width=2)
     ))
     
-    fig_ry.add_hline(y=1.8, line_dash="dash", line_color="green", annotation_text="Soglia Alta (1.8%)")
-    fig_ry.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="Soglia Bassa (0.5%)")
+    fig_ry.add_hline(y=1.8, line_dash="dash", line_color="green", line_width=1)
+    fig_ry.add_hline(y=0.5, line_dash="dash", line_color="red", line_width=1)
     
     fig_ry.update_layout(
         title="Andamento Real Yield 10Y (6 mesi)",
@@ -595,22 +616,25 @@ with g1:
         height=350,
         margin=dict(l=20, r=20, t=40, b=20),
         yaxis_title="Real Yield (%)",
-        xaxis_title="Data"
+        xaxis_title="Data",
+        showlegend=False
     )
     st.plotly_chart(fig_ry, use_container_width=True)
 
-with g2:
+with g4:
     fig_be = go.Figure()
+    
+    # Solo linea, nessun fill
     fig_be.add_trace(go.Scatter(
         x=d['be_hist'].index,
         y=d['be_hist'].values,
+        mode='lines',
         name="Breakeven Inflation",
-        line=dict(color='#00bfff', width=2),
-        fill='tozeroy',
-        fillcolor='rgba(0,191,255,0.1)'
+        line=dict(color='#00bfff', width=2)
     ))
     
-    fig_be.add_hrect(y0=1.5, y1=3.0, fillcolor="green", opacity=0.1, annotation_text="Range Normale", annotation_position="left")
+    fig_be.add_hline(y=3.0, line_dash="dash", line_color="red", line_width=1)
+    fig_be.add_hline(y=1.5, line_dash="dash", line_color="green", line_width=1)
     
     fig_be.update_layout(
         title="Aspettative Inflazione - Breakeven 10Y (6 mesi)",
@@ -618,7 +642,8 @@ with g2:
         height=350,
         margin=dict(l=20, r=20, t=40, b=20),
         yaxis_title="Breakeven (%)",
-        xaxis_title="Data"
+        xaxis_title="Data",
+        showlegend=False
     )
     st.plotly_chart(fig_be, use_container_width=True)
 
@@ -652,16 +677,12 @@ with f2:
     
     if 1.5 < d['be'] < 3:
         be_status = "✅ OK"
-        be_detail = "Range normale"
     elif d['be'] < 1.5:
         be_status = "⚠️ DEFLATION RISK"
-        be_detail = "Aspettative basse"
     else:
         be_status = "⚠️ INFLATION RISK"
-        be_detail = "Aspettative alte"
     
     st.write(f"**Breakeven:** {d['be']:.2f}% ({be_status})")
-    st.caption(be_detail)
     
     unemp_status = "✅ Normale" if d['unemp'] < 4.5 else "🚨 ALERT"
     st.write(f"**Unemployment:** {d['unemp']:.1f}% ({unemp_status})")
@@ -671,20 +692,18 @@ with f3:
     
     equity_filter = "🚨 PANICO EQUITY" if s_equity == 1 else "✅ Equity Stabile"
     st.write(f"**Equity:** {equity_filter}")
-    if s_equity == 1:
-        st.caption("Favorevole per rifugio in bond")
     
     convex = "Adeguata" if d['ry'] > 1.8 else "Ridotta"
     st.write(f"**Convessità:** {convex}")
     
-    if move_val > 110:
+    if d['move_3m_avg'] > 110:
         move_status = "🔴 Alta volatilità"
-    elif move_val > 80:
+    elif d['move_3m_avg'] > 80:
         move_status = "🟡 Media volatilità"
     else:
         move_status = "✅ Bassa volatilità"
     
-    st.write(f"**MOVE:** {move_status}")
+    st.write(f"**MOVE 3M:** {move_status}")
 
 st.markdown("---")
 
@@ -788,30 +807,17 @@ with st.expander("📖 Manuale Operativo e Filosofia del Monitor"):
     
     **💡 Opportunità:** Confidence alta + Stabilità moderata = fase di transizione
     
-    ## 🧩 Configurazioni di Regime
-    
-    | Regime | Confidence | Stability | Azione |
-    |--------|-----------|-----------|--------|
-    | Iniziale | Alta | Bassa | Accumulo graduale |
-    | Matura | Alta | Alta | Mantenere |
-    | Negativa | Bassa | -- | Difensivo |
-    | Divergenza | Media | Media | Neutrale |
-    
     ## 📊 Breakdown Score
     
     - **Inflation**: Delta 3 mesi. Negativo = inflazione rallenta ✅
     - **Real Yield**: Sopra 1.8% = buona remunerazione ✅
-    - **MOVE**: Sotto 70 = bassa volatilità ✅
+    - **MOVE 3M Avg**: Sotto 70 = bassa volatilità ✅
     - **Curve**: Sotto 0.1% = piatta
     - **TIPS/Momentum/Equity**: Performance relative
     
-    **Total Score Range:**
-    - **+6 a +3**: Fortemente pro-duration
-    - **+2 a +1**: Moderatamente favorevole
-    - **0 a -1**: Neutrale/Cauto
-    - **-2 a -6**: Sfavorevole
-    
     ## ⚠️ Stress Test MOVE 130
+    
+    Formula: **Total Score - MOVE Score - 1**
     
     Simula scenario con volatilità elevata:
     - **Positivo**: Regime regge anche con stress
@@ -824,13 +830,6 @@ with st.expander("📖 Manuale Operativo e Filosofia del Monitor"):
     ✅ Usa per: Capire contesto macro, identificare transizioni, valutare robustezza
     
     ❌ Non usare per: Trading giornaliero, decisioni 100% automatiche
-    
-    ## 🔧 Limitazioni
-    
-    - Dati possono avere ritardi
-    - Thresholds statici potrebbero cambiare
-    - Black swans invalidano modelli
-    - Correlazioni non garantite
     """)
 
 # ============================================================================
@@ -838,6 +837,6 @@ with st.expander("📖 Manuale Operativo e Filosofia del Monitor"):
 # ============================================================================
 
 st.markdown("---")
-st.caption("🛡️ Bond Monitor Strategico v2.0 - Sistema di Regime Detection")
+st.caption("🛡️ Bond Monitor Strategico v3.0 - MOVE 3M Avg | Grafici Ottimizzati")
 st.caption(f"📅 Ultimo aggiornamento: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 st.caption("⚠️ Questo tool è a scopo informativo. Non costituisce consulenza finanziaria.")
