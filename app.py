@@ -230,3 +230,72 @@ try:
 
 except Exception as e:
     st.error(f"Errore: {e}")
+
+# --- GUIDA STRATEGICA (Sezione finale richiudibile) ---
+st.divider()
+
+# =========================
+# ANALISI DINAMICA REGIME
+# =========================
+
+if dur_conf > 0.6 and sig_stab < 0.4:
+    reg_txt = "🚀 FASE INIZIALE: Carry reale favorevole ma consenso ancora debole. Tipica fase di accumulo graduale."
+    
+elif dur_conf > 0.6 and sig_stab > 0.7:
+    reg_txt = "📢 FASE MATURA: Segnali allineati e consenso elevato. Probabile fase avanzata del movimento."
+
+elif dur_conf < 0.4:
+    reg_txt = "🚨 REGIME NEGATIVO: Duration poco remunerata rispetto al rischio macro."
+
+else:
+    reg_txt = "⚖️ REGIME DI DIVERGENZA: Indicatori non allineati. Transizione macro in corso."
+
+st.info(f"**Analisi di Regime Attuale:** {reg_txt}")
+
+
+with st.expander("📖 Manuale Operativo e Filosofia del Monitor"):
+
+    st.markdown("""
+    ### 🎯 Scopo del Monitor
+    Il monitor sintetizza il regime macro obbligazionario per valutare se la duration è
+    strutturalmente favorita e se i bond possono tornare a svolgere funzione di hedge.
+
+    ---
+    ### 🚦 Pilastri di Lettura
+
+    **Duration Confidence**
+    - Misura quanto i tassi reali remunerano il rischio duration.
+    - Valori elevati indicano carry reale positivo.
+
+    **Signal Stability**
+    - Indica quanto i segnali macro sono coerenti tra loro.
+    - Le migliori opportunità nascono con confidence alta e stabilità intermedia.
+
+    **MOVE 3M Average**
+    - Misura lo stress del mercato obbligazionario.
+    - Valori elevati riducono l'affidabilità dei segnali di duration.
+
+    **Total Score**
+    - Sintesi direzionale del regime macro:
+        - Positivo → contesto favorevole ai bond
+        - Neutrale → fase di transizione
+        - Negativo → pressione inflattiva o instabilità
+
+    ---
+    ### 🧩 Configurazioni di Regime
+
+    ✅ **Fase Iniziale**
+    - Mercato ancora diffidente
+    - Miglior fase rischio/rendimento per accumulo
+
+    📢 **Fase Matura**
+    - Consenso elevato
+    - Movimento già in parte prezzato
+
+    🚨 **Regime Negativo**
+    - Inflazione o real yield sfavorevoli
+    - Duration vulnerabile
+
+    ⚖️ **Divergenza**
+    - Cambio aspettative o segnali contrastanti
+    """)
