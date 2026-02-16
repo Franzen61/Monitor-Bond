@@ -21,19 +21,25 @@ st.markdown("""
 
 @st.cache_data(ttl=3600)
 def fetch_data():
-    # Dati da FRED
+    # 1. Dati da FRED
     ry_series = fred.get_series('DFII10')
     be_series = fred.get_series('T10YIE')
     unemp = fred.get_series('UNRATE').iloc[-1]
     dgs10 = fred.get_series('DGS10').iloc[-1]
     dgs2 = fred.get_series('DGS2').iloc[-1]
     
-    # Core PCE Delta
+    # 2. Core PCE Delta
     pce_idx = fred.get_series('PCEPILFE')
     pce_now = ((pce_idx.iloc[-1] / pce_idx.iloc[-13]) - 1) * 100
     pce_3m = ((pce_idx.iloc[-4] / pce_idx.iloc[-16]) - 1) * 100
     delta_inf = pce_now - pce_3m
     
+    # 3. Dati da Yahoo Finance (MOVE Index, IEF, SPY, TIP)
+    # Scarichiamo il MOVE Index storico per calcolare la media 3 mesi
+    move_data = yf.Ticker("^MOVE").history(period="120d")
+    move_curr = move_data['Close'].iloc[-1]
+    move_3m_avg = move_data['Close'].tail(90).mean() # Media 3 mesi (circa 90gg)
+
     def get_var(t):
         h = yf.Ticker(t).history(period="60d")
         if h.empty: return 0
@@ -43,24 +49,25 @@ def fetch_data():
         "ry": ry_series.iloc[-1], "ry_hist": ry_series.tail(180),
         "be": be_series.iloc[-1], "be_hist": be_series.tail(180),
         "unemp": unemp, "delta_inf": delta_inf, "curve": dgs10 - dgs2,
-        "ief_mom": get_var("IEF"), "spy_var": get_var("SPY"), "tips_var": get_var("TIP")
+        "ief_mom": get_var("IEF"), "spy_var": get_var("SPY"), "tips_var": get_var("TIP"),
+        "move_val": move_curr, "move_avg": move_3m_avg
     }
 
 try:
     d = fetch_data()
     
-    # --- SIDEBAR ---
-    st.sidebar.header("⚙️ Parametri Live")
-    move_val = st.sidebar.number_input("MOVE Index", value=70.01)
-
     # --- LOGICA SCORE ---
     s_inf = 1 if d['delta_inf'] < -0.003 else (-1 if d['delta_inf'] > 0.003 else 0)
-    s_move = -1 if move_val > 90 else (1 if move_val < 70 else 0)
+    
+    # S_MOVE ora basato sul valore attuale scaricato automaticamente
+    s_move = -1 if d['move_val'] > 90 else (1 if d['move_val'] < 70 else 0)
+    
     s_curve = 1 if d['curve'] < 0.1 else (-1 if d['curve'] > 1 else 0)
     s_ry = 1 if d['ry'] > 1.8 else (-1 if d['ry'] < 0.5 else 0)
     s_tips = 1 if d['tips_var'] < -0.02 else (-1 if d['tips_var'] > 0.02 else 0)
     s_mom = -1 if d['ief_mom'] < -0.015 else (1 if d['ief_mom'] > 0.008 else 0)
     s_equity = 1 if d['spy_var'] < -0.05 else 0
+    
     total_score = s_inf + s_move + s_curve + s_ry + s_tips + s_mom + s_equity
 
     # --- RATIOS ---
@@ -69,7 +76,7 @@ try:
     eff_dur_conf = dur_conf * (0.5 + sig_stab * 0.5)
 
     # --- HEADER ---
-    st.title("🛡️ Bond Monitor Strategico")
+    st.title("🛡️ Bond Monitor Strategico (Full Auto)")
     
     c1, c2 = st.columns([2,1])
     with c1:
@@ -79,23 +86,22 @@ try:
         else: target = "4-6 anni (Neutrale)"
         st.subheader(f"🎯 Target: {target}")
         
-        # --- DRIVER RENDIMENTO (Nuova Sezione) ---
+        # Driver Rendimento
         if s_inf < 0 and s_ry <= 0:
             driver_txt = "🔴 PREMIO INFLAZIONE (rischio duration)"
         elif s_inf >= 0 and s_ry > 0:
             driver_txt = "🟠 PREMIO TERM / DEBITO (duration penalizzata)"
         else:
             driver_txt = "🟢 REAL YIELD SANO (regime equilibrato)"
-        
         st.markdown(f"**Driver Rendimento:** {driver_txt}")
         
-        reg_move_txt = "⚠️ REGIME DIPENDENTE DAL MOVE" if s_move < 1 else "✅ REGIME ROBUSTO"
-        st.caption(f"Status Volatilità: {reg_move_txt}")
+        # Info MOVE Automatico
+        st.caption(f"MOVE Index: {d['move_val']:.2f} (Media 3M: {d['move_avg']:.2f})")
     
     with c2:
-        # Calcolo allineato al Foglio Google: (Total Score - Move Score) - 1
-        stress_val = (total_score - s_move) - 1
-        st.metric("STRESS TEST (MOVE 130)", f"{stress_val:.0f}")
+        # STRESS TEST: (Total Score - Move Score) - 1
+        stress_val = int(total_score) - int(s_move) - 1
+        st.metric("STRESS TEST (MOVE Avg)", f"{stress_val}")
         resilienza = "✅ RESILIENTE" if stress_val > 0 else "⚠️ VULNERABILE"
         st.markdown(f"**Status:** {resilienza}")
 
@@ -114,7 +120,7 @@ try:
 
     # --- FILTRI ---
     st.divider()
-    st.subheader("🔍 Stato Filtri e Analisi")
+    st.subheader("🔍 Stato Filtri e Analisi Live")
     f1, f2, f3 = st.columns(3)
     with f1:
         behr = "🟢 HEDGE ATTIVO" if (s_inf >= 0 and s_ry >= 0 and eff_dur_conf >= 0.55) else "⚠️ HEDGE DEBOLE"
@@ -133,9 +139,10 @@ try:
     with g1:
         fig_ry = go.Figure()
         fig_ry.add_trace(go.Scatter(x=d['ry_hist'].index, y=d['ry_hist'].values, name="Real Yield", line=dict(color='#00ff00')))
-        fig_ry.update_layout(title="Andamento Real Yield 10Y", template="plotly_dark", height=300, margin=dict(l=20,r=20,t=40,b=20))
+        fig_ry.update_layout(title="Trend Real Yield 10Y", template="plotly_dark", height=300, margin=dict(l=20,r=20,t=40,b=20))
         st.plotly_chart(fig_ry, width='stretch')
     with g2:
+        # Aggiunto grafico MOVE per monitorare la volatilità scaricata
         fig_be = go.Figure()
         fig_be.add_trace(go.Scatter(x=d['be_hist'].index, y=d['be_hist'].values, name="Breakeven", line=dict(color='#00bfff')))
         fig_be.update_layout(title="Aspettative Inflazione (Breakeven)", template="plotly_dark", height=300, margin=dict(l=20,r=20,t=40,b=20))
@@ -143,7 +150,6 @@ try:
 
     # --- GUIDA STRATEGICA ---
     st.divider()
-    
     if dur_conf > 0.6 and sig_stab < 0.4:
         reg_txt = "🚀 FASE INIZIALE: Confidence Alta / Stabilità Bassa. Opportunità di accumulo graduale."
     elif dur_conf > 0.6 and sig_stab > 0.7:
@@ -164,13 +170,7 @@ try:
         - **Duration Confidence**: Remunerazione dei tassi reali. Se bassa, il rischio non è pagato.
         - **Signal Stability**: Coerenza dei dati. Le migliori opportunità nascono con Confidence alta e Stabilità moderata (fase di transizione).
         - **Hedge Status**: Capacità di protezione. Se debole, i bond non decorrelano (rischio 2022).
-        
-        #### 🧩 Configurazioni di Regime
-        - **Iniziale**: Mercato diffidente, ottimo per accumulo graduale.
-        - **Matura**: Consenso uniforme, movimento già incorporato nei prezzi.
-        - **Negativa**: Dominata dall'inflazione, sfavorevole alla duration lunga.
-        - **Divergenza**: Rischio macro non ancora risolto o cambio aspettative.
         """)
 
 except Exception as e:
-    st.error(f"Errore: {e}")
+    st.error(f"Errore tecnico nel recupero dati: {e}")
