@@ -22,27 +22,38 @@ st.markdown("""
 
 @st.cache_data(ttl=3600)
 def fetch_data():
-    # --- FRED DATA ---
+
+    # =============================
+    # FRED DATA
+    # =============================
+
     ry_series = fred.get_series('DFII10')
     be_series = fred.get_series('T10YIE')
     unemp = fred.get_series('UNRATE').iloc[-1]
     dgs10 = fred.get_series('DGS10').iloc[-1]
     dgs2 = fred.get_series('DGS2').iloc[-1]
 
-    # Core PCE Delta
+    # Core PCE Delta (replica foglio)
     pce_idx = fred.get_series('PCEPILFE')
-    pce_now = ((pce_idx.iloc[-1] / pce_idx.iloc[-13]) - 1) * 100
-    pce_3m = ((pce_idx.iloc[-4] / pce_idx.iloc[-16]) - 1) * 100
+    pce_now = ((pce_idx.iloc[-1] / pce_idx.iloc[-13]) - 1)
+    pce_3m = ((pce_idx.iloc[-4] / pce_idx.iloc[-16]) - 1)
     delta_inf = pce_now - pce_3m
 
-    # --- MOVE 3M Average da Yahoo ---
-    move_hist = yf.Ticker("^MOVE").history(period="120d")
-    if move_hist.empty:
+    # =============================
+    # MOVE 3M Avg — Replica Google Sheet
+    # =============================
+
+    move_hist = yf.Ticker("^MOVE").history(period="6mo", interval="1mo")
+
+    if move_hist.empty or len(move_hist) < 3:
         move_avg = 0
     else:
-        move_avg = move_hist["Close"].rolling(60).mean().iloc[-1]
+        move_avg = move_hist["Close"].iloc[-3:].mean()
 
-    # --- Momentum Helper ---
+    # =============================
+    # VARIAZIONI 30gg (replica foglio)
+    # =============================
+
     def get_var(ticker):
         h = yf.Ticker(ticker).history(period="60d")
         if h.empty:
@@ -67,7 +78,10 @@ def fetch_data():
 try:
     d = fetch_data()
 
-    # --- LOGICA SCORE ---
+    # =============================
+    # LOGICA SCORE — IDENTICA GOOGLE SHEET
+    # =============================
+
     s_inf = 1 if d['delta_inf'] < -0.003 else (-1 if d['delta_inf'] > 0.003 else 0)
     s_move = -1 if d['move_avg'] > 90 else (1 if d['move_avg'] < 70 else 0)
     s_curve = 1 if d['curve'] < 0.1 else (-1 if d['curve'] > 1 else 0)
@@ -76,14 +90,28 @@ try:
     s_mom = -1 if d['ief_mom'] < -0.015 else (1 if d['ief_mom'] > 0.008 else 0)
     s_equity = 1 if d['spy_var'] < -0.05 else 0
 
-    total_score = s_inf + s_move + s_curve + s_ry + s_tips + s_mom + s_equity
+    total_score = (
+        s_inf +
+        s_move +
+        s_curve +
+        s_ry +
+        s_tips +
+        s_mom +
+        s_equity
+    )
 
-    # --- RATIOS ---
+    # =============================
+    # RATIOS
+    # =============================
+
     dur_conf = ((total_score + 6) / 12) * (1 + s_ry * 0.15)
     sig_stab = abs(total_score) / 6
     eff_dur_conf = dur_conf * (0.5 + sig_stab * 0.5)
 
-    # --- HEADER ---
+    # =============================
+    # HEADER
+    # =============================
+
     st.title("🛡️ Bond Monitor Strategico")
 
     c1, c2, c3 = st.columns([2, 1, 1])
@@ -111,8 +139,12 @@ try:
         st.metric("STRESS TEST (MOVE 130)", f"{stress_val:.0f}")
         st.markdown(f"**Resilienza:** {'⚠️ VULNERABILE' if stress_val <= 0 else '✅ RESILIENTE'}")
 
-    # --- METRICHE PRINCIPALI ---
+    # =============================
+    # METRICHE PRINCIPALI
+    # =============================
+
     st.divider()
+
     r1, r2, r3 = st.columns(3)
 
     r1.metric("Duration Confidence", f"{dur_conf:.1%}")
@@ -129,7 +161,10 @@ try:
 
     r3.metric("Eff. Dur. Conf.", f"{eff_dur_conf:.1%}")
 
-    # --- FILTRI ---
+    # =============================
+    # FILTRI
+    # =============================
+
     st.divider()
     st.subheader("🔍 Stato Filtri e Analisi")
 
@@ -142,15 +177,19 @@ try:
 
     with f2:
         st.write(f"**Breakeven:** {d['be']:.2f}% ({'✅ OK' if 1.5 < d['be'] < 3 else '⚠️ ALERT'})")
-        st.write(f"**Unemployment:** {d['unemp']}% ({'✅ Normale' if d['unemp'] < 4.5 else '🚨 ALERT'})")
+        st.write(f"**Unemployment:** {d['unemp']:.1f}% ({'✅ Normale' if d['unemp'] < 4.5 else '🚨 ALERT'})")
 
     with f3:
         st.write(f"**MOVE 3M Avg:** {d['move_avg']:.2f}")
         st.write(f"**Filtro Equity:** {'🚨 PANICO' if s_equity == 1 else '✅ Stabile'}")
         st.write(f"**Convessità:** {'Adeguata' if d['ry'] > 1.8 else 'Ridotta'}")
 
-    # --- GRAFICI ---
+    # =============================
+    # GRAFICI
+    # =============================
+
     st.divider()
+
     g1, g2 = st.columns(2)
 
     with g1:
@@ -188,37 +227,6 @@ try:
             margin=dict(l=20, r=20, t=40, b=20)
         )
         st.plotly_chart(fig_be, width='stretch')
-
-    # --- ANALISI REGIME ---
-    st.divider()
-
-    if dur_conf > 0.6 and sig_stab < 0.4:
-        reg_txt = "🚀 FASE INIZIALE: Confidence Alta / Stabilità Bassa. Opportunità di accumulo graduale."
-    elif dur_conf > 0.6 and sig_stab > 0.7:
-        reg_txt = "📢 FASE MATURA: Tutto Positivo e Allineato. Movimento probabilmente già prezzato."
-    elif dur_conf < 0.4:
-        reg_txt = "🚨 REGIME NEGATIVO: Duration non adeguatamente compensata."
-    else:
-        reg_txt = "⚖️ REGIME DI DIVERGENZA: Segnale incerto o cambiamento di aspettative in corso."
-
-    st.info(f"**Analisi di Regime Attuale:** {reg_txt}")
-
-    with st.expander("📖 Manuale Operativo e Filosofia del Monitor"):
-        st.markdown("""
-        ### 🎯 Scopo del Monitor
-        Fornire una lettura del regime macro per capire se la duration è strutturalmente favorita e se i bond decorrelano dall'equity.
-
-        #### 🚦 Pilastri di Lettura
-        - **Duration Confidence**: Remunerazione dei tassi reali. Se bassa, il rischio non è pagato.
-        - **Signal Stability**: Coerenza dei dati. Le migliori opportunità nascono con Confidence alta e Stabilità moderata.
-        - **Hedge Status**: Capacità di protezione. Se debole, i bond non decorrelano (rischio 2022).
-
-        #### 🧩 Configurazioni di Regime
-        - **Iniziale**: Mercato diffidente, ottimo per accumulo graduale.
-        - **Matura**: Consenso uniforme, movimento già incorporato nei prezzi.
-        - **Negativa**: Dominata dall'inflazione, sfavorevole alla duration lunga.
-        - **Divergenza**: Cambio aspettative in corso.
-        """)
 
 except Exception as e:
     st.error(f"Errore: {e}")
