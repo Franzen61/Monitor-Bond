@@ -121,14 +121,21 @@ def get_var(ticker, days=30):
 def get_move_data():
     """
     Scarica MOVE Index e calcola media 3 mesi
+    Con gestione rate limit e fallback
     """
     try:
+        import time
+        time.sleep(0.5)  # Pausa per evitare rate limit
+        
         move_ticker = yf.Ticker("^MOVE")
         move_history = move_ticker.history(period="6mo")['Close']
         
         if move_history.empty:
-            st.warning("⚠️ MOVE Index non disponibile, uso valore stimato")
-            return 70.0, pd.Series([70]*90), 70.0
+            st.warning("⚠️ MOVE Index non disponibile, uso valore stimato 70")
+            # Crea serie storica fittizia per grafici
+            date_range = pd.date_range(end=pd.Timestamp.now(), periods=126, freq='D')
+            move_history = pd.Series([70]*126, index=date_range)
+            return 70.0, move_history, 70.0
         
         # Valore attuale
         move_current = move_history.iloc[-1]
@@ -139,11 +146,20 @@ def get_move_data():
         return move_current, move_history, move_3m_avg
         
     except Exception as e:
-        st.error(f"❌ Errore scaricamento MOVE: {e}")
-        return 70.0, pd.Series([70]*90), 70.0
+        error_msg = str(e)
+        
+        if "Rate" in error_msg or "429" in error_msg:
+            st.warning("⚠️ Yahoo Finance rate limit raggiunto. Usando valore MOVE stimato (70). I dati saranno aggiornati al prossimo refresh.")
+        else:
+            st.warning(f"⚠️ MOVE temporaneamente non disponibile: {error_msg}")
+        
+        # Fallback con serie storica per grafici
+        date_range = pd.date_range(end=pd.Timestamp.now(), periods=126, freq='D')
+        move_history = pd.Series([70]*126, index=date_range)
+        return 70.0, move_history, 70.0
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)  # 6 ore (riduce chiamate API)
 def fetch_data():
     """
     Raccoglie tutti i dati necessari da FRED, Yahoo Finance, Cleveland Fed
@@ -717,63 +733,30 @@ st.subheader("🎯 Analisi di Regime Attuale")
 if dur_conf > 0.6 and sig_stab < 0.4:
     regime_type = "🚀 FASE INIZIALE"
     regime_color = "#00ff00"
-    regime_desc = """
-    **Confidence Alta / Stabilità Bassa**
-    
-    Configurazione ideale per **accumulo graduale**:
-    - Il mercato offre buona remunerazione
-    - Non c'è ancora consenso uniforme
-    - Opportunità: Posizionarsi prima che diventi mainstream
-    
-    **Azione suggerita:** Iniziare accumulo con 30-40% target allocation
-    """
+    regime_desc = "Mercato offre buona remunerazione ma senza consenso uniforme. Accumulo graduale 30-40% allocation."
 elif dur_conf > 0.6 and sig_stab > 0.7:
     regime_type = "📢 FASE MATURA"
     regime_color = "#ffa500"
-    regime_desc = """
-    **Tutto Positivo e Allineato**
-    
-    Il movimento è probabilmente già prezzato:
-    - Alta confidence + Alta stabilità = Consenso
-    - Tutti i fattori allineati positivamente
-    - Upside limitato, già incorporato nei prezzi
-    
-    **Azione suggerita:** Hold posizioni, evitare di aumentare ora
-    """
+    regime_desc = "Movimento già prezzato, consenso uniforme. Hold posizioni, evitare di aumentare ora."
 elif dur_conf < 0.4:
     regime_type = "🚨 REGIME NEGATIVO"
     regime_color = "#ff0000"
-    regime_desc = """
-    **Duration Non Adeguatamente Compensata**
-    
-    Il mercato NON paga abbastanza per il rischio:
-    - Bassa confidence = Real yield insufficiente
-    - Inflazione e/o term premium dominanti
-    
-    **Azione suggerita:** Posizione difensiva (1-3 anni), liquidità
-    """
+    regime_desc = "Mercato non paga abbastanza per il rischio duration. Posizione difensiva (1-3 anni), liquidità."
 else:
     regime_type = "⚖️ REGIME DI DIVERGENZA"
     regime_color = "#808080"
-    regime_desc = """
-    **Segnale Incerto o Cambio Aspettative**
-    
-    Situazione mista con fattori contrastanti:
-    - Confidence e Stabilità in range moderato
-    - Alcuni fattori positivi, altri negativi
-    
-    **Azione suggerita:** Neutrale, duration intermedia (4-6 anni)
-    """
+    regime_desc = "Segnali contrastanti, alcuni fattori positivi altri negativi. Neutrale, duration intermedia (4-6 anni)."
 
 st.markdown(f"""
 <div style="
     background: linear-gradient(135deg, {regime_color}22 0%, {regime_color}44 100%);
     border-left: 4px solid {regime_color};
-    padding: 20px;
-    border-radius: 10px;
+    padding: 12px 15px;
+    border-radius: 8px;
+    max-width: 800px;
 ">
-    <h3 style="color: {regime_color}; margin-top: 0;">{regime_type}</h3>
-    <div style="color: #ccc; line-height: 1.8;">
+    <h4 style="color: {regime_color}; margin: 0 0 8px 0; font-size: 18px;">{regime_type}</h4>
+    <div style="color: #ccc; font-size: 14px; line-height: 1.5;">
         {regime_desc}
     </div>
 </div>
