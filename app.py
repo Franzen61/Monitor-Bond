@@ -40,15 +40,16 @@ def fetch_data():
     delta_inf = pce_now - pce_3m
 
     # =============================
-    # MOVE 3M Avg — Replica Google Sheet
+    # MOVE 3M Avg — REATTIVITÀ GIORNALIERA
     # =============================
+    # Scarichiamo dati giornalieri (non mensili) per intercettare subito i cambi di trend
+    move_hist = yf.Ticker("^MOVE").history(period="130d") 
 
-    move_hist = yf.Ticker("^MOVE").history(period="6mo", interval="1mo")
-
-    if move_hist.empty or len(move_hist) < 3:
+    if move_hist.empty or len(move_hist) < 90:
         move_avg = 0
     else:
-        move_avg = move_hist["Close"].iloc[-3:].mean()
+        # Media degli ultimi 90 giorni lavorativi (circa 3 mesi solari)
+        move_avg = move_hist["Close"].tail(90).mean()
 
     # =============================
     # VARIAZIONI 30gg (replica foglio)
