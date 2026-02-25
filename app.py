@@ -224,7 +224,48 @@ with tab1:
             st.write(f"**MOVE 3M Avg:** {d['move_avg']:.2f}")
             st.write(f"**Filtro Equity:** {'🚨 PANICO' if scores['s_equity'] == 1 else '✅ Stabile'}")
             st.write(f"**Convessità:** {'Adeguata' if d['ry'] > 1.8 else 'Ridotta'}")
-        
+
+        # DEBUG
+        with st.expander("🔧 Debug — Valori Raw e Score Componenti"):
+            debug_df = pd.DataFrame({
+                'Variabile': [
+                    'Delta Inflation (3m)',
+                    'MOVE 3M Avg',
+                    'Curve 10-2Y',
+                    'Real Yield 10Y',
+                    'IEF Momentum (30 barre)',
+                    'TIPS Var (30 barre)',
+                    'SPY Var (30 barre)'
+                ],
+                'Valore Raw': [
+                    f"{d['delta_inf']:.4%}",
+                    f"{d['move_avg']:.2f}",
+                    f"{d['curve']:.3f}%",
+                    f"{d['ry']:.2f}%",
+                    f"{d['ief_mom']:.4%}",
+                    f"{d['tips_var']:.4%}",
+                    f"{d['spy_var']:.4%}"
+                ],
+                'Score': [
+                    scores['s_inf'],
+                    scores['s_move'],
+                    scores['s_curve'],
+                    scores['s_ry'],
+                    scores['s_mom'],
+                    scores['s_tips'],
+                    scores['s_equity']
+                ],
+                'Soglia +1 / -1': [
+                    '< -0.30% / > +0.30%',
+                    '< 70 / > 90',
+                    '< 0.1% / > 1.0%',
+                    '> 1.8% / < 0.5%',
+                    '> +0.80% / < -1.50%',
+                    '< -2.0% / > +2.0%',
+                    '< -5.0% (filtro)'
+                ]
+            })
+            st.dataframe(debug_df, use_container_width=True, hide_index=True)
         # GRAFICI
         st.divider()
         
