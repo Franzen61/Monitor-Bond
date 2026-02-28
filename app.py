@@ -420,6 +420,7 @@ with tab1:
                 tickvals=x_labels,
                 ticktext=maturities,
                 gridcolor="#1e2430",
+                tickangle=-45,
             ),
             yaxis=dict(
                 title="Rendimento (%)",
