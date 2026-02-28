@@ -465,7 +465,52 @@ with tab1:
             col_yc3.metric("10Y",       f"{v_10y:.2f}%" if v_10y else "N/D")
             col_yc4.metric("30Y",       f"{v_30y:.2f}%" if v_30y else "N/D")
 
-            st.caption(f"**Forma curva:** {shape_label} &nbsp;|&nbsp; Spread 10Y-3M: {spread_10_3m:+.2f}%")
+            # ---- STEEPENING / FLATTENING DETECTION ----
+        delta_2y  = (y_today[3] - y_1m[3]) if (y_today[3] and y_1m[3]) else None
+        delta_10y = (y_today[7] - y_1m[7]) if (y_today[7] and y_1m[7]) else None
+
+        if delta_2y is not None and delta_10y is not None:
+            if delta_10y > 0 and delta_10y > delta_2y:
+                regime_curve = "📈 Bear Steepening — tassi lunghi salgono più dei corti"
+                regime_color = "#ff6b6b"
+            elif delta_2y < 0 and delta_10y > delta_2y:
+                regime_curve = "📈 Bull Steepening — tassi corti scendono più dei lunghi (Fed taglia)"
+                regime_color = "#00ff00"
+            elif delta_2y > 0 and delta_2y > delta_10y:
+                regime_curve = "📉 Bear Flattening — tassi corti salgono più dei lunghi (Fed alza)"
+                regime_color = "#ffa500"
+            elif delta_10y < 0 and delta_2y > delta_10y:
+                regime_curve = "📉 Bull Flattening — tassi lunghi scendono più dei corti"
+                regime_color = "#00bfff"
+            else:
+                regime_curve = "➡️ Curva stabile — variazioni minime nell'ultimo mese"
+                regime_color = "#888888"
+        else:
+            regime_curve = "N/D"
+            regime_color = "#888888"
+
+        st.caption(f"**Forma curva:** {shape_label} &nbsp;|&nbsp; Spread 10Y-3M: {spread_10_3m:+.2f}%")
+
+        st.markdown(f"""
+        <div style="
+            background:#161b22;
+            border:1px solid #31333F;
+            border-radius:8px;
+            padding:12px 16px;
+            margin-top:8px;
+        ">
+            <div style="font-size:0.9em;font-weight:bold;color:{regime_color};margin-bottom:6px;">
+                {regime_curve}
+            </div>
+            <div style="font-size:0.75em;color:#888;line-height:1.7;">
+                <b style="color:#aaa;">Metodo:</b> confronto variazioni 2Y e 10Y rispetto a 1 mese fa<br>
+                🔴 <b style="color:#ff6b6b;">Bear Steepening</b> — lunghi salgono &gt; corti · bond lunghi sotto pressione · mercato prezza crescita/inflazione<br>
+                🟢 <b style="color:#00ff00;">Bull Steepening</b> — corti scendono &gt; lunghi · Fed in taglio · favorevole a bond breve<br>
+                🟠 <b style="color:#ffa500;">Bear Flattening</b> — corti salgono &gt; lunghi · Fed restrittiva · curva si appiattisce<br>
+                🔵 <b style="color:#00bfff;">Bull Flattening</b> — lunghi scendono &gt; corti · rally bond lunghi · risk-off o disinflazione
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
         # ANALISI REGIME
         st.divider()
