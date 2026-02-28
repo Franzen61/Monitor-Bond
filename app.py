@@ -302,6 +302,164 @@ with tab1:
                 margin=dict(l=20, r=20, t=40, b=20)
             )
             st.plotly_chart(fig_be, use_container_width=True)
+            # ============================================================================
+        # YIELD CURVE SNAPSHOT
+        # ============================================================================
+
+        st.divider()
+        st.subheader("📐 Curva dei Rendimenti — Snapshot")
+
+        @st.cache_data(ttl=3600)
+        def fetch_yield_curve():
+            """Scarica tutti i punti della curva da FRED: oggi, 1M fa, 1Y fa"""
+            curve_tickers = {
+                "3M":  "DGS3MO",
+                "6M":  "DGS6MO",
+                "1Y":  "DGS1",
+                "2Y":  "DGS2",
+                "3Y":  "DGS3",
+                "5Y":  "DGS5",
+                "7Y":  "DGS7",
+                "10Y": "DGS10",
+                "20Y": "DGS20",
+                "30Y": "DGS30",
+            }
+            result = {}
+            for label, ticker in curve_tickers.items():
+                try:
+                    series = fred.get_series(ticker).dropna()
+                    result[label] = series
+                except Exception:
+                    result[label] = None
+            return result
+
+        curve_data = fetch_yield_curve()
+
+        maturities = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"]
+        x_labels   = [0.25, 0.5, 1, 2, 3, 5, 7, 10, 20, 30]  # anni (asse X numerico)
+
+        def get_curve_at(data, offset_days=0):
+            """Estrae i valori della curva a una certa distanza dal passato."""
+            values = []
+            for label in maturities:
+                s = data.get(label)
+                if s is None or s.empty:
+                    values.append(None)
+                    continue
+                if offset_days == 0:
+                    values.append(float(s.iloc[-1]))
+                else:
+                    cutoff = s.index[-1] - pd.Timedelta(days=offset_days)
+                    s_past = s[s.index <= cutoff]
+                    if s_past.empty:
+                        values.append(None)
+                    else:
+                        values.append(float(s_past.iloc[-1]))
+            return values
+
+        y_today  = get_curve_at(curve_data, offset_days=0)
+        y_1m     = get_curve_at(curve_data, offset_days=30)
+        y_1y     = get_curve_at(curve_data, offset_days=365)
+
+        # Data label per la legenda
+        last_date = None
+        for label in maturities:
+            s = curve_data.get(label)
+            if s is not None and not s.empty:
+                last_date = s.index[-1].strftime("%d %b %Y")
+                break
+
+        fig_yc = go.Figure()
+
+        # 1 anno fa — grigio tratteggiato
+        fig_yc.add_trace(go.Scatter(
+            x=x_labels, y=y_1y,
+            mode="lines+markers",
+            name="1 anno fa",
+            line=dict(color="#555555", width=1.5, dash="dot"),
+            marker=dict(size=5),
+        ))
+
+        # 1 mese fa — arancione tratteggiato
+        fig_yc.add_trace(go.Scatter(
+            x=x_labels, y=y_1m,
+            mode="lines+markers",
+            name="1 mese fa",
+            line=dict(color="#FFA500", width=1.5, dash="dash"),
+            marker=dict(size=5),
+        ))
+
+        # Oggi — verde pieno, prominente
+        fig_yc.add_trace(go.Scatter(
+            x=x_labels, y=y_today,
+            mode="lines+markers+text",
+            name=f"Oggi ({last_date})",
+            line=dict(color="#00FF00", width=2.5),
+            marker=dict(size=7),
+            text=[f"{v:.2f}%" if v else "" for v in y_today],
+            textposition="top center",
+            textfont=dict(size=9, color="#00FF00"),
+        ))
+
+        # Linea zero per riferimento
+        fig_yc.add_hline(
+            y=0, line_dash="solid", line_color="#333333",
+            line_width=1, opacity=0.5
+        )
+
+        # Asse X con etichette leggibili
+        fig_yc.update_layout(
+            template="plotly_dark",
+            height=400,
+            title=dict(
+                text="Curva dei Rendimenti US Treasury",
+                font=dict(size=15)
+            ),
+            xaxis=dict(
+                title="Scadenza",
+                tickvals=x_labels,
+                ticktext=maturities,
+                gridcolor="#1e2430",
+            ),
+            yaxis=dict(
+                title="Rendimento (%)",
+                gridcolor="#1e2430",
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+            ),
+            margin=dict(l=40, r=20, t=60, b=40),
+            hovermode="x unified",
+        )
+
+        st.plotly_chart(fig_yc, use_container_width=True)
+
+        # Lettura sintetica sotto il grafico
+        v_3m  = y_today[0]   # 3M
+        v_2y  = y_today[3]   # 2Y
+        v_10y = y_today[7]   # 10Y
+        v_30y = y_today[9]   # 30Y
+
+        if v_10y and v_3m:
+            spread_10_3m = v_10y - v_3m
+            if spread_10_3m < 0:
+                shape_label = "🔴 Invertita (10Y < 3M) — segnale recessivo"
+            elif spread_10_3m < 0.5:
+                shape_label = "🟡 Piatta — transizione in corso"
+            else:
+                shape_label = "🟢 Normale — pendenza positiva"
+
+            col_yc1, col_yc2, col_yc3, col_yc4 = st.columns(4)
+            col_yc1.metric("3M",        f"{v_3m:.2f}%"  if v_3m  else "N/D")
+            col_yc2.metric("2Y",        f"{v_2y:.2f}%"  if v_2y  else "N/D")
+            col_yc3.metric("10Y",       f"{v_10y:.2f}%" if v_10y else "N/D")
+            col_yc4.metric("30Y",       f"{v_30y:.2f}%" if v_30y else "N/D")
+
+            st.caption(f"**Forma curva:** {shape_label} &nbsp;|&nbsp; Spread 10Y-3M: {spread_10_3m:+.2f}%")
         
         # ANALISI REGIME
         st.divider()
