@@ -152,101 +152,6 @@ def fetch_live_data():
 
 
 # ============================================================================
-# DATASET BACKTEST
-# ============================================================================
-
-BACKTEST_PERIODS = {
-    "Dicembre 2021 - Inflazione Record": {
-        "date": "31/12/2021",
-        "context": "Fed ancora accomodante, inflazione in forte accelerazione. Core PCE al 5.24%.",
-        "inputs": {
-            "delta_inf": 0.0074,  # 5.24% - 4.50% (3 mesi prima)
-            "move_avg": 80.67,
-            "curve": 0.797,
-            "ry": -0.64,
-            "tips_var": -0.00493,
-            "ief_mom": -0.0287,  # IEF: 113 vs 116.44
-            "spy_var": 0.0535,
-            "be": 2.56,
-            "unemp": 3.9
-        },
-        "performance_6m": {
-            "TLT": -0.15,  # -15% (bond lunghi crollati)
-            "IEF": -0.09,
-            "SHY": -0.01
-        },
-        "verdict": "⚠️ SEGNALE PARZIALMENTE CORRETTO",
-        "explanation": "Il monitor suggeriva cautela (Real Yield negativo), ma l'inflazione ha sorpreso al rialzo."
-    },
-    "Agosto 2023 - Tassi al Picco": {
-        "date": "31/08/2023",
-        "context": "Fed al picco dei rialzi, curva invertita, mercato inizia a prezzare pivot.",
-        "inputs": {
-            "delta_inf": -0.0040,  # 4.20% - 4.60% (in calo)
-            "move_avg": 106.78,
-            "curve": -0.657,
-            "ry": 1.85,
-            "tips_var": -0.0224,
-            "ief_mom": 0.0109,
-            "spy_var": 0.0109,
-            "be": 2.26,
-            "unemp": 3.7
-        },
-        "performance_6m": {
-            "TLT": 0.02,  # +2%
-            "IEF": 0.04,  # +4%
-            "SHY": 0.02
-        },
-        "verdict": "✅ SEGNALE CORRETTO",
-        "explanation": "MOVE alto suggeriva cautela. Nei 6 mesi successivi bond intermedi hanno performato meglio."
-    },
-    "Marzo 2020 - Panico COVID": {
-        "date": "31/03/2020",
-        "context": "Lockdown globale, panico massimo, Fed taglia tassi a zero e lancia QE.",
-        "inputs": {
-            "delta_inf": -0.001,
-            "move_avg": 150.0,  # Volatilità estrema
-            "curve": 0.40,
-            "ry": -1.10,  # Real yield fortemente negativo
-            "tips_var": -0.05,
-            "ief_mom": 0.08,
-            "spy_var": -0.20,  # -20% crollo equity
-            "be": 1.20,
-            "unemp": 4.4
-        },
-        "performance_6m": {
-            "TLT": 0.15,  # +15%
-            "IEF": 0.08,
-            "SHY": 0.01
-        },
-        "verdict": "✅ SEGNALE CORRETTO",
-        "explanation": "Filtro equity panic attivo. Bond lunghi hanno protetto durante il crollo."
-    },
-    "Ottobre 2022 - Picco Inflazione": {
-        "date": "31/10/2022",
-        "context": "Inflazione ancora sopra 6%, Fed aggressiva con rialzi 75bps, bond ai minimi.",
-        "inputs": {
-            "delta_inf": 0.002,
-            "move_avg": 130.0,
-            "curve": 0.45,
-            "ry": 1.60,
-            "tips_var": 0.01,
-            "ief_mom": -0.02,
-            "spy_var": -0.08,
-            "be": 2.40,
-            "unemp": 3.7
-        },
-        "performance_6m": {
-            "TLT": 0.12,  # +12% (inizio rally bond)
-            "IEF": 0.08,
-            "SHY": 0.02
-        },
-        "verdict": "✅ SEGNALE CORRETTO",
-        "explanation": "Picco inflazione + Fed al termine del ciclo. Bond lunghi hanno iniziato il rally."
-    }
-}
-
-# ============================================================================
 # TABS
 # ============================================================================
 
@@ -319,7 +224,48 @@ with tab1:
             st.write(f"**MOVE 3M Avg:** {d['move_avg']:.2f}")
             st.write(f"**Filtro Equity:** {'🚨 PANICO' if scores['s_equity'] == 1 else '✅ Stabile'}")
             st.write(f"**Convessità:** {'Adeguata' if d['ry'] > 1.8 else 'Ridotta'}")
-        
+
+        # DEBUG
+        with st.expander("🔧 Debug — Valori Raw e Score Componenti"):
+            debug_df = pd.DataFrame({
+                'Variabile': [
+                    'Delta Inflation (3m)',
+                    'MOVE 3M Avg',
+                    'Curve 10-2Y',
+                    'Real Yield 10Y',
+                    'IEF Momentum (30 barre)',
+                    'TIPS Var (30 barre)',
+                    'SPY Var (30 barre)'
+                ],
+                'Valore Raw': [
+                    f"{d['delta_inf']:.4%}",
+                    f"{d['move_avg']:.2f}",
+                    f"{d['curve']:.3f}%",
+                    f"{d['ry']:.2f}%",
+                    f"{d['ief_mom']:.4%}",
+                    f"{d['tips_var']:.4%}",
+                    f"{d['spy_var']:.4%}"
+                ],
+                'Score': [
+                    scores['s_inf'],
+                    scores['s_move'],
+                    scores['s_curve'],
+                    scores['s_ry'],
+                    scores['s_mom'],
+                    scores['s_tips'],
+                    scores['s_equity']
+                ],
+                'Soglia +1 / -1': [
+                    '< -0.30% / > +0.30%',
+                    '< 70 / > 90',
+                    '< 0.1% / > 1.0%',
+                    '> 1.8% / < 0.5%',
+                    '> +0.80% / < -1.50%',
+                    '< -2.0% / > +2.0%',
+                    '< -5.0% (filtro)'
+                ]
+            })
+            st.dataframe(debug_df, use_container_width=True, hide_index=True)
         # GRAFICI
         st.divider()
         
@@ -356,6 +302,170 @@ with tab1:
                 margin=dict(l=20, r=20, t=40, b=20)
             )
             st.plotly_chart(fig_be, use_container_width=True)
+            # ============================================================================
+        # YIELD CURVE SNAPSHOT
+        # ============================================================================
+
+        st.divider()
+        st.subheader("📐 Curva dei Rendimenti — Snapshot")
+
+        @st.cache_data(ttl=3600)
+        def fetch_yield_curve():
+            """Scarica tutti i punti della curva da FRED: oggi, 1M fa, 1Y fa"""
+            curve_tickers = {
+                "3M":  "DGS3MO",
+                "6M":  "DGS6MO",
+                "1Y":  "DGS1",
+                "2Y":  "DGS2",
+                "3Y":  "DGS3",
+                "5Y":  "DGS5",
+                "7Y":  "DGS7",
+                "10Y": "DGS10",
+                "20Y": "DGS20",
+                "30Y": "DGS30",
+            }
+            result = {}
+            for label, ticker in curve_tickers.items():
+                try:
+                    series = fred.get_series(ticker).dropna()
+                    result[label] = series
+                except Exception:
+                    result[label] = None
+            return result
+
+        curve_data = fetch_yield_curve()
+
+        maturities = ["3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"]
+        x_labels   = [0.25, 0.5, 1, 2, 3, 5, 7, 10, 20, 30]  # anni (asse X numerico)
+
+        def get_curve_at(data, offset_days=0):
+            """Estrae i valori della curva a una certa distanza dal passato."""
+            values = []
+            for label in maturities:
+                s = data.get(label)
+                if s is None or s.empty:
+                    values.append(None)
+                    continue
+                if offset_days == 0:
+                    values.append(float(s.iloc[-1]))
+                else:
+                    cutoff = s.index[-1] - pd.Timedelta(days=offset_days)
+                    s_past = s[s.index <= cutoff]
+                    if s_past.empty:
+                        values.append(None)
+                    else:
+                        values.append(float(s_past.iloc[-1]))
+            return values
+
+        y_today  = get_curve_at(curve_data, offset_days=0)
+        y_1m     = get_curve_at(curve_data, offset_days=30)
+        y_1y     = get_curve_at(curve_data, offset_days=365)
+
+        # Data label per la legenda
+        last_date = None
+        for label in maturities:
+            s = curve_data.get(label)
+            if s is not None and not s.empty:
+                last_date = s.index[-1].strftime("%d %b %Y")
+                break
+
+        fig_yc = go.Figure()
+
+        # 1 anno fa — grigio tratteggiato
+        fig_yc.add_trace(go.Scatter(
+            x=x_labels, y=y_1y,
+            mode="lines+markers",
+            name="1 anno fa",
+            line=dict(color="#555555", width=1.5, dash="dot"),
+            marker=dict(size=5),
+        ))
+
+        # 1 mese fa — arancione tratteggiato
+        fig_yc.add_trace(go.Scatter(
+            x=x_labels, y=y_1m,
+            mode="lines+markers",
+            name="1 mese fa",
+            line=dict(color="#FFA500", width=1.5, dash="dash"),
+            marker=dict(size=5),
+        ))
+
+        # Oggi — verde pieno, prominente
+        fig_yc.add_trace(go.Scatter(
+            x=x_labels, y=y_today,
+            mode="lines+markers+text",
+            name=f"Oggi ({last_date})",
+            line=dict(color="#00FF00", width=2.5),
+            marker=dict(size=7),
+            text=[f"{v:.2f}%" if v else "" for v in y_today],
+            textposition="top center",
+            textfont=dict(size=9, color="#00FF00"),
+        ))
+
+        # Linea zero per riferimento
+        fig_yc.add_hline(
+            y=0, line_dash="solid", line_color="#333333",
+            line_width=1, opacity=0.5
+        )
+
+        # Asse X con etichette leggibili
+        all_values = [v for v in y_today + y_1m + y_1y if v is not None]
+        y_min = round(min(all_values) - 0.3, 1) if all_values else 0
+        y_max = round(max(all_values) + 0.3, 1) if all_values else 6
+
+        fig_yc.update_layout(
+            template="plotly_dark",
+            height=400,
+            title=dict(
+                text="Curva dei Rendimenti US Treasury",
+                font=dict(size=15)
+            ),
+            xaxis=dict(
+                title="Scadenza",
+                tickvals=x_labels,
+                ticktext=maturities,
+                gridcolor="#1e2430",
+                tickangle=-45,
+            ),
+            yaxis=dict(
+                title="Rendimento (%)",
+                gridcolor="#1e2430",
+                range=[y_min, y_max],
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+            ),
+            margin=dict(l=40, r=20, t=60, b=40),
+            hovermode="x unified",
+        )
+
+        st.plotly_chart(fig_yc, use_container_width=True)
+
+        # Lettura sintetica sotto il grafico
+        v_3m  = y_today[0]   # 3M
+        v_2y  = y_today[3]   # 2Y
+        v_10y = y_today[7]   # 10Y
+        v_30y = y_today[9]   # 30Y
+
+        if v_10y and v_3m:
+            spread_10_3m = v_10y - v_3m
+            if spread_10_3m < 0:
+                shape_label = "🔴 Invertita (10Y < 3M) — segnale recessivo"
+            elif spread_10_3m < 0.5:
+                shape_label = "🟡 Piatta — transizione in corso"
+            else:
+                shape_label = "🟢 Normale — pendenza positiva"
+
+            col_yc1, col_yc2, col_yc3, col_yc4 = st.columns(4)
+            col_yc1.metric("3M",        f"{v_3m:.2f}%"  if v_3m  else "N/D")
+            col_yc2.metric("2Y",        f"{v_2y:.2f}%"  if v_2y  else "N/D")
+            col_yc3.metric("10Y",       f"{v_10y:.2f}%" if v_10y else "N/D")
+            col_yc4.metric("30Y",       f"{v_30y:.2f}%" if v_30y else "N/D")
+
+            st.caption(f"**Forma curva:** {shape_label} &nbsp;|&nbsp; Spread 10Y-3M: {spread_10_3m:+.2f}%")
         
         # ANALISI REGIME
         st.divider()
@@ -390,181 +500,273 @@ with tab1:
         st.info("Riprova tra qualche minuto o verifica la connessione.")
 
 # ============================================================================
-# TAB 2: BACKTEST STORICO (NUOVO)
+# TAB 2: BACKTEST STORICO
 # ============================================================================
 
 with tab2:
     st.title("🔬 Backtest Storico")
-    st.markdown("### Verifica come si sarebbe comportato il monitor in momenti chiave del mercato")
+    st.markdown("Inserisci una data per vedere cosa avrebbe indicato il monitor in quel momento.")
+    st.caption("I dati vengono scaricati automaticamente da FRED e Yahoo Finance.")
     
     st.divider()
     
-    # Selezione periodo
-    period_name = st.selectbox(
-        "📅 Seleziona Periodo Storico",
-        list(BACKTEST_PERIODS.keys()),
-        help="Scegli un periodo di stress o transizione del mercato"
-    )
+    # ---- DATE PICKER ----
+    col_date, col_btn = st.columns([2, 1])
     
-    if period_name:
-        data = BACKTEST_PERIODS[period_name]
-        
-        # Mostra contesto
-        st.info(f"**{data['date']}** - {data['context']}")
-        
-        st.divider()
-        
-        # Calcola score con dati storici
-        scores_bt = calculate_scores(data['inputs'])
-        
-        # Layout: Segnale Monitor | Performance Reale
-        col1, col2 = st.columns(2)
-        
-        # === COLONNA 1: SEGNALE MONITOR ===
-        with col1:
-            st.subheader("📊 Segnale del Monitor")
-            
-            # Total Score
-            score_color = "#00ff00" if scores_bt['total_score'] >= 3 else ("#ffa500" if scores_bt['total_score'] >= 1 else "#ff0000")
-            st.markdown(f"""
-            <div style="
-                background: {score_color}22;
-                border: 2px solid {score_color};
-                padding: 15px;
-                border-radius: 10px;
-                text-align: center;
-                margin-bottom: 15px;
-            ">
-                <div style="font-size: 14px; color: #888;">TOTAL SCORE</div>
-                <div style="font-size: 42px; font-weight: bold; color: white;">
-                    {scores_bt['total_score']:+d}
+    with col_date:
+        backtest_date = st.date_input(
+            "📅 Data di Analisi",
+            value=datetime(2021, 12, 31),
+            min_value=datetime(2010, 1, 1),
+            max_value=datetime.now(),
+            help="Inserisci la data su cui vuoi testare il monitor"
+        )
+    
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_backtest = st.button("🔍 Calcola Backtest", use_container_width=True)
+    
+    if run_backtest:
+        with st.spinner("Scaricamento dati storici in corso..."):
+            try:
+                from datetime import timedelta
+                
+                target_date = pd.Timestamp(backtest_date)
+                start_date = target_date - timedelta(days=130)
+                
+                # ---- FRED DATA ----
+                ry_hist = fred.get_series('DFII10', observation_end=target_date)
+                ry = ry_hist.iloc[-1]
+                
+                dgs10_hist = fred.get_series('DGS10', observation_end=target_date)
+                dgs2_hist = fred.get_series('DGS2', observation_end=target_date)
+                curve = dgs10_hist.iloc[-1] - dgs2_hist.iloc[-1]
+                
+                be_hist = fred.get_series('T10YIE', observation_end=target_date)
+                be = be_hist.iloc[-1]
+                
+                unemp_hist = fred.get_series('UNRATE', observation_end=target_date)
+                unemp = unemp_hist.iloc[-1]
+                
+                # Core PCE con delay realistico
+                pce = fred.get_series('PCEPILFE', observation_end=target_date)
+                pce_now = ((pce.iloc[-1] / pce.iloc[-13]) - 1)
+                pce_3m = ((pce.iloc[-4] / pce.iloc[-16]) - 1)
+                delta_inf = pce_now - pce_3m
+                
+                # ---- YAHOO FINANCE ----
+                def get_hist_var(ticker, end_date, lookback=130, var_days=30):
+                    start = end_date - timedelta(days=lookback)
+                    h = yf.Ticker(ticker).history(
+                        start=start.strftime('%Y-%m-%d'),
+                        end=end_date.strftime('%Y-%m-%d')
+                    )
+                    if h.empty or len(h) < var_days:
+                        return 0
+                    return (h['Close'].iloc[-1] / h['Close'].iloc[-var_days]) - 1
+                
+                # MOVE 3M Average
+                move_raw = yf.Ticker("^MOVE").history(
+                    start=start_date.strftime('%Y-%m-%d'),
+                    end=target_date.strftime('%Y-%m-%d')
+                )
+                if move_raw.empty or len(move_raw) < 30:
+                    move_avg = 70.0
+                    st.warning("⚠️ MOVE storico non disponibile, usando 70 come stima")
+                else:
+                    move_avg = move_raw['Close'].tail(90).mean()
+                    move_current = move_raw['Close'].iloc[-1]
+                
+                ief_mom = get_hist_var("IEF", target_date)
+                tips_var = get_hist_var("TIP", target_date)
+                spy_var = get_hist_var("SPY", target_date)
+                
+                # ---- CALCOLA SCORE ----
+                data_bt = {
+                    'delta_inf': delta_inf,
+                    'move_avg': move_avg,
+                    'curve': curve,
+                    'ry': ry,
+                    'tips_var': tips_var,
+                    'ief_mom': ief_mom,
+                    'spy_var': spy_var
+                }
+                
+                scores_bt = calculate_scores(data_bt)
+                
+                st.success(f"✅ Dati caricati per il {backtest_date.strftime('%d/%m/%Y')}")
+                st.divider()
+                
+                # ---- LAYOUT RISULTATI ----
+                col1, col2 = st.columns([1, 1])
+                
+                # === COLONNA 1: SCORE ===
+                with col1:
+                    st.subheader("📊 Indicazione Monitor")
+                    
+                    # Total Score card
+                    score_color = (
+                        "#00ff00" if scores_bt['total_score'] >= 3 else
+                        "#ffa500" if scores_bt['total_score'] >= 1 else
+                        "#808080" if scores_bt['total_score'] >= -1 else
+                        "#ff0000"
+                    )
+                    
+                    st.markdown(f"""
+                    <div style="
+                        background: {score_color}22;
+                        border: 2px solid {score_color};
+                        padding: 15px;
+                        border-radius: 10px;
+                        text-align: center;
+                        margin-bottom: 15px;
+                    ">
+                        <div style="font-size: 13px; color: #888;">TOTAL SCORE</div>
+                        <div style="font-size: 40px; font-weight: bold; color: white;">
+                            {scores_bt['total_score']:+d}
+                        </div>
+                        <div style="font-size: 12px; color: #888; margin-top: 4px;">/ 6</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.metric("🎯 Target Duration", scores_bt['target'])
+                    st.metric("⚡ Stress Test MOVE 130", f"{scores_bt['stress_val']:+d}")
+                    st.metric("📊 Duration Confidence", f"{scores_bt['dur_conf']:.1%}")
+                    st.metric("📈 Signal Stability", f"{scores_bt['sig_stab']:.1%}")
+                    
+                    st.markdown("---")
+                    st.markdown(f"**Regime:** {scores_bt['regime']}")
+                    st.caption(scores_bt['regime_desc'])
+                
+                # === COLONNA 2: DATI + BREAKDOWN ===
+                with col2:
+                    st.subheader("📋 Dati alla Data")
+                    
+                    # Dati raw
+                    raw_df = pd.DataFrame({
+                        'Indicatore': [
+                            'Real Yield', 'Curva 10-2Y', 'Breakeven',
+                            'MOVE 3M Avg', 'Delta Inflation',
+                            'IEF Momentum', 'TIPS Var', 'Unemployment'
+                        ],
+                        'Valore': [
+                            f"{ry:.2f}%",
+                            f"{curve:.2f}%",
+                            f"{be:.2f}%",
+                            f"{move_avg:.1f}",
+                            f"{delta_inf:.2%}",
+                            f"{ief_mom:.2%}",
+                            f"{tips_var:.2%}",
+                            f"{unemp:.1f}%"
+                        ]
+                    })
+                    st.dataframe(raw_df, use_container_width=True, hide_index=True)
+                    
+                    # Breakdown score
+                    st.markdown("---")
+                    breakdown_df = pd.DataFrame({
+                        'Componente': [
+                            'Inflation', 'MOVE', 'Curve',
+                            'Real Yield', 'TIPS', 'Momentum'
+                        ],
+                        'Score': [
+                            scores_bt['s_inf'], scores_bt['s_move'],
+                            scores_bt['s_curve'], scores_bt['s_ry'],
+                            scores_bt['s_tips'], scores_bt['s_mom']
+                        ]
+                    })
+                    
+                    def style_score(val):
+                        if val > 0:
+                            return 'background-color: rgba(0,255,0,0.2); color: #00ff00; font-weight: bold;'
+                        elif val < 0:
+                            return 'background-color: rgba(255,0,0,0.2); color: #ff6b6b; font-weight: bold;'
+                        return 'background-color: rgba(128,128,128,0.1); color: #888;'
+                    
+                    st.dataframe(
+                        breakdown_df.style.applymap(style_score, subset=['Score']),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                
+                # ---- ETF DI RIFERIMENTO ----
+                st.divider()
+                
+                if scores_bt['total_score'] >= 3:
+                    etf_ref = "TLT"
+                    etf_desc = "Bond 20+ anni"
+                    etf_color = "#00ff00"
+                elif scores_bt['total_score'] >= 1:
+                    etf_ref = "IEF"
+                    etf_desc = "Bond 7-10 anni"
+                    etf_color = "#ffa500"
+                elif scores_bt['total_score'] <= -1:
+                    etf_ref = "SHY"
+                    etf_desc = "Bond 1-3 anni"
+                    etf_color = "#ff6b6b"
+                else:
+                    etf_ref = "IEF"
+                    etf_desc = "Bond 7-10 anni (Neutrale)"
+                    etf_color = "#808080"
+                
+                st.markdown(f"""
+                <div style="
+                    background: {etf_color}22;
+                    border: 2px solid {etf_color};
+                    padding: 15px;
+                    border-radius: 10px;
+                ">
+                    <div style="font-size: 16px; font-weight: bold; color: {etf_color};">
+                        💡 ETF di Riferimento: {etf_ref} ({etf_desc})
+                    </div>
+                    <div style="font-size: 13px; color: #aaa; margin-top: 8px;">
+                        Verifica su Yahoo Finance la performance di <b>{etf_ref}</b> 
+                        nei 3-6 mesi successivi al {backtest_date.strftime('%d/%m/%Y')} 
+                        per validare il segnale.
+                    </div>
+                    <div style="font-size: 12px; color: #888; margin-top: 6px;">
+                        🔗 yahoo.com/quote/{etf_ref}
+                    </div>
                 </div>
-                <div style="font-size: 12px; color: #888;">/ 6</div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+                
+                st.caption("⚠️ Nota: il PCE potrebbe avere un delay di 30-45 giorni rispetto alla data selezionata.")
             
-            # Indicazioni
-            st.metric("Target Duration", scores_bt['target'])
-            st.metric("Stress Test", f"{scores_bt['stress_val']:+d}")
-            st.metric("Duration Confidence", f"{scores_bt['dur_conf']:.1%}")
-            st.metric("Signal Stability", f"{scores_bt['sig_stab']:.1%}")
-            
-            # Regime
-            st.markdown("---")
-            st.markdown(f"**Regime:** {scores_bt['regime']}")
-            st.caption(scores_bt['regime_desc'])
-            
-            # Breakdown Score
-            with st.expander("🔍 Breakdown Score Dettagliato"):
-                breakdown_df = pd.DataFrame({
-                    'Componente': ['Inflation', 'MOVE', 'Curve', 'Real Yield', 'TIPS', 'Momentum'],
-                    'Score': [scores_bt['s_inf'], scores_bt['s_move'], scores_bt['s_curve'], 
-                             scores_bt['s_ry'], scores_bt['s_tips'], scores_bt['s_mom']],
-                    'Valore': [
-                        f"{data['inputs']['delta_inf']:.2%}",
-                        f"{data['inputs']['move_avg']:.1f}",
-                        f"{data['inputs']['curve']:.2%}",
-                        f"{data['inputs']['ry']:.2f}%",
-                        f"{data['inputs']['tips_var']:.2%}",
-                        f"{data['inputs']['ief_mom']:.2%}"
-                    ]
-                })
-                st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
-        
-        # === COLONNA 2: PERFORMANCE REALE ===
-        with col2:
-            st.subheader("📈 Performance Successiva (6 Mesi)")
-            
-            perf = data['performance_6m']
-            
-            # Performance metriche
-            st.metric("TLT (Bond 20Y)", f"{perf['TLT']:.1%}", 
-                     delta="Long Duration" if scores_bt['total_score'] >= 3 else None)
-            st.metric("IEF (Bond 7-10Y)", f"{perf['IEF']:.1%}",
-                     delta="Core Duration" if 1 <= scores_bt['total_score'] < 3 else None)
-            st.metric("SHY (Bond 1-3Y)", f"{perf['SHY']:.1%}",
-                     delta="Short Duration" if scores_bt['total_score'] < 1 else None)
-            
-            # Valutazione
-            st.markdown("---")
-            st.markdown(f"**Valutazione:** {data['verdict']}")
-            st.caption(data['explanation'])
-            
-            # Grafico performance
-            st.markdown("---")
-            fig_perf = go.Figure()
-            
-            etfs = ['TLT', 'IEF', 'SHY']
-            perfs = [perf['TLT'] * 100, perf['IEF'] * 100, perf['SHY'] * 100]
-            colors = ['#ff6b6b' if p < 0 else '#00ff00' for p in perfs]
-            
-            fig_perf.add_trace(go.Bar(
-                x=etfs,
-                y=perfs,
-                marker_color=colors,
-                text=[f"{p:.1f}%" for p in perfs],
-                textposition='outside'
-            ))
-            
-            fig_perf.update_layout(
-                title="Performance 6 Mesi (%)",
-                template="plotly_dark",
-                height=300,
-                yaxis_title="Return %",
-                showlegend=False
-            )
-            
-            st.plotly_chart(fig_perf, use_container_width=True)
-        
-        # === INSIGHTS ===
-        st.divider()
-        st.subheader("💡 Insights")
-        
-        # Calcola accuracy
-        if scores_bt['total_score'] >= 3:
-            correct = perf['TLT'] > perf['SHY']
-            expected = "Bond lunghi (20Y) dovrebbero sovraperformare"
-        elif scores_bt['total_score'] >= 1:
-            correct = perf['IEF'] >= min(perf['TLT'], perf['SHY'])
-            expected = "Bond intermedi (7-10Y) dovrebbero offrire miglior risk/reward"
-        elif scores_bt['total_score'] <= -1:
-            correct = perf['SHY'] > perf['TLT']
-            expected = "Bond corti (1-3Y) dovrebbero proteggere meglio"
-        else:
-            correct = True
-            expected = "Regime neutrale, duration intermedia appropriata"
-        
-        if correct:
-            st.success(f"✅ **Previsione corretta:** {expected}")
-        else:
-            st.warning(f"⚠️ **Previsione parziale:** {expected}, ma altri fattori hanno prevalso")
+            except Exception as e:
+                st.error(f"❌ Errore nel caricamento dati storici: {e}")
+                st.info("Prova una data diversa o riprova tra qualche minuto.")
     
-    # === LEGENDA ===
+    else:
+        st.info("👆 Seleziona una data e clicca **Calcola Backtest** per iniziare.")
+    
+    # ---- LEGENDA ----
     st.divider()
-    with st.expander("ℹ️ Come Interpretare il Backtest"):
+    with st.expander("ℹ️ Come Usare il Backtest"):
         st.markdown("""
         ### 🎯 Obiettivo
-        Il backtest verifica se le indicazioni del monitor sarebbero state corrette nei momenti chiave del mercato.
+        Verificare cosa avrebbe indicato il monitor in una data specifica,
+        e confrontarlo con il comportamento reale del mercato.
         
-        ### 📊 Cosa Confrontiamo
-        - **Segnale Monitor:** Target duration suggerito dal Total Score
-        - **Performance Reale:** Rendimenti effettivi dei bond nei 6 mesi successivi
+        ### 📋 Come Procedere
+        1. Seleziona una data storica
+        2. Clicca **Calcola Backtest**
+        3. Guarda il **Target Duration** e l'**ETF di riferimento**
+        4. Vai su **Yahoo Finance** e controlla la performance di quell'ETF
+           nei 3-6 mesi successivi alla data
+        5. Valuta se il segnale era corretto, anticipato o tardivo
         
-        ### ✅ Segnale Corretto
-        - Score >= +3 → TLT dovrebbe battere SHY
-        - Score 1-2 → IEF dovrebbe offrire miglior risk/reward
-        - Score <= -1 → SHY dovrebbe proteggere meglio
+        ### 📊 ETF di Riferimento
+        | Score | Target | ETF |
+        |-------|--------|-----|
+        | >= +3 | 15-20+ anni | TLT |
+        | +1/+2 | 7-10 anni | IEF |
+        | 0 | 4-6 anni (neutrale) | IEF |
+        | -1 o meno | 1-3 anni | SHY |
         
         ### ⚠️ Limitazioni
-        - Il backtest è ex-post: non include shock imprevedibili
-        - Performance a 6 mesi: orizzonte arbitrario
-        - Dati storici: potrebbero essere rivisti dalle fonti ufficiali
-        
-        ### 💡 Utilizzo
-        Usa il backtest per:
-        1. Capire la **robustezza** del framework
-        2. Identificare **limiti** del modello (es. transizioni violente)
-        3. Calibrare **aspettative** realistiche (non è infallibile)
+        - PCE ha delay di 30-45 giorni (dato non disponibile in real-time)
+        - MOVE storico disponibile dal 2010
+        - Non considera eventi imprevedibili (black swans)
         """)
 
 st.markdown("---")
