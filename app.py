@@ -408,7 +408,7 @@ with tab1:
         )
 
         # Asse X con etichette leggibili
-       all_values = [v for v in y_today + y_1m + y_1y if v is not None]
+        all_values = [v for v in y_today + y_1m + y_1y if v is not None]
         y_min = round(min(all_values) - 0.3, 1) if all_values else 0
         y_max = round(max(all_values) + 0.3, 1) if all_values else 6
 
