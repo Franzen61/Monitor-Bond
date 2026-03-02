@@ -313,7 +313,6 @@ with tab1:
         def fetch_yield_curve():
             """Scarica tutti i punti della curva da FRED: oggi, 1M fa, 1Y fa"""
             curve_tickers = {
-                "1M":  "DGS1MO",
                 "3M":  "DGS3MO",
                 "6M":  "DGS6MO",
                 "1Y":  "DGS1",
