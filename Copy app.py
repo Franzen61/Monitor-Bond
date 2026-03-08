@@ -123,7 +123,11 @@ def read_from_sheets():
         
         # Converti tipi
         df['Data'] = pd.to_datetime(df['Data'])
-        numeric_cols = df.columns[1:]  # Tutte tranne Data
+        
+        # Converti solo colonne numeriche (escludi Target che sono stringhe)
+        numeric_cols = [col for col in df.columns[1:] 
+                       if col not in ['Target_Strat', 'Target_Tatt']]
+        
         for col in numeric_cols:
             try:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
