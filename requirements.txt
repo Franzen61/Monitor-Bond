@@ -7,3 +7,5 @@ requests
 beautifulsoup4
 numpy
 openpyxl
+gspread
+google-auth
