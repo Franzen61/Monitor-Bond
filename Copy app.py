@@ -47,15 +47,6 @@ def get_gspread_client():
 
 
 def log_to_sheets(data, scores, etf_prices, manual=False):
-    """
-    Salva snapshot su Google Sheets.
-    
-    Args:
-        data: dict con dati macro
-        scores: dict con score dual system
-        etf_prices: dict con prezzi ETF
-        manual: bool, True se snapshot manuale
-    """
     try:
         client = get_gspread_client()
         if not client:
@@ -64,15 +55,12 @@ def log_to_sheets(data, scores, etf_prices, manual=False):
         spreadsheet_id = st.secrets["google_sheets"]["spreadsheet_id"]
         sheet = client.open_by_key(spreadsheet_id).sheet1
         
-        # Prepara riga
         today = datetime.now().strftime("%Y-%m-%d")
         
-        # Controlla se esiste già entry per oggi (evita duplicati)
         existing_data = sheet.get_all_values()
-        if len(existing_data) > 1:  # Ha header + almeno 1 riga
-            dates = [row[0] for row in existing_data[1:]]  # Skip header
+        if len(existing_data) > 1:
+            dates = [row[0] for row in existing_data[1:]]
             if today in dates and not manual:
-                # Già loggato oggi, skip (a meno che non sia manual)
                 return False
         
         row = [
@@ -115,16 +103,12 @@ def read_from_sheets():
         
         data = sheet.get_all_values()
         
-        if len(data) <= 1:  # Solo header o vuoto
+        if len(data) <= 1:
             return None
         
-        # Converti in DataFrame
         df = pd.DataFrame(data[1:], columns=data[0])
-        
-        # Converti tipi
         df['Data'] = pd.to_datetime(df['Data'])
         
-        # Converti solo colonne numeriche (escludi Target che sono stringhe)
         numeric_cols = [col for col in df.columns[1:] 
                        if col not in ['Target_Strat', 'Target_Tatt']]
         
@@ -142,9 +126,8 @@ def read_from_sheets():
 
 
 def should_log_today():
-    """Controlla se oggi è lunedì (giorno di log automatico)."""
     today = datetime.now()
-    return today.weekday() == 0  # 0 = Lunedì
+    return today.weekday() == 0
 
 
 # ============================================================================
@@ -163,7 +146,6 @@ st.markdown("""
 # ============================================================================
 
 def get_inflation_score(delta_inf, pce_current):
-    """Soglie adattive basate sul livello assoluto di inflazione."""
     if pce_current > 0.035:
         return 1 if delta_inf < -0.002 else (-1 if delta_inf > 0.0005 else 0)
     elif pce_current > 0.025:
@@ -175,7 +157,6 @@ def get_inflation_score(delta_inf, pce_current):
 
 
 def get_real_yield_score(ry, pce_current):
-    """Soglie ASSOLUTE, adattate al regime inflazionistico."""
     if pce_current > 0.035:
         return 1 if ry > 0.020 else (-1 if ry < 0.008 else 0)
     elif pce_current > 0.025:
@@ -187,7 +168,6 @@ def get_real_yield_score(ry, pce_current):
 
 
 def get_curve_score(curve, curve_hist=None):
-    """Adattivo: livello assoluto + trend relativo a storia recente."""
     if curve < -0.3:
         level_score = 1
     elif curve > 0.4:
@@ -213,7 +193,6 @@ def get_curve_score(curve, curve_hist=None):
 
 
 def get_move_score(move_current, move_hist=None):
-    """Adattivo: livello assoluto + percentile storico + spike detection."""
     if move_current > 110:
         level_score = -1
     elif move_current < 60:
@@ -250,7 +229,6 @@ def get_move_score(move_current, move_hist=None):
 
 
 def get_tips_score(tips_var, move_current, spy_var):
-    """Filtra noise: se stress generale, ignora TIPS."""
     if move_current > 100 and spy_var < -0.05:
         return 0
     
@@ -267,10 +245,8 @@ def get_tips_score(tips_var, move_current, spy_var):
 # ============================================================================
 
 def calculate_scores_dual(data, history=None):
-    """Calcola DUAL SYSTEM: Strategico (6-12M) + Tattico (1-3M)"""
     pce_current = data.get('pce_current', 0.025)
     
-    # Score strategico (base adattivo)
     s_inf = get_inflation_score(data['delta_inf'], pce_current)
     s_ry = get_real_yield_score(data['ry'], pce_current)
     
@@ -285,12 +261,10 @@ def calculate_scores_dual(data, history=None):
     
     total_strategico = s_inf + s_move + s_curve + s_ry + s_tips + s_mom
     
-    # Score tattico (con boost)
     s_inf_tatt = s_inf
     s_curve_tatt = s_curve
     s_mom_tatt = s_mom
     
-    # Boost 1: Super-Momentum
     ief_mom_abs = abs(data['ief_mom'])
     if ief_mom_abs > 0.05:
         s_mom_tatt = 2 if data['ief_mom'] > 0 else -2
@@ -304,7 +278,6 @@ def calculate_scores_dual(data, history=None):
     else:
         boost_mom_label = None
     
-    # Boost 2: Equity Panic
     spy_var = data.get('spy_var', 0)
     if spy_var < -0.10:
         boost_panic = 1
@@ -318,7 +291,6 @@ def calculate_scores_dual(data, history=None):
         boost_panic = 0
         boost_panic_label = None
     
-    # Boost 3: MOVE Context-Aware
     move_boost = 0
     move_boost_label = None
     if data['move_avg'] > 100 and data['ief_mom'] > 0.03 and spy_var < -0.03:
@@ -330,7 +302,6 @@ def calculate_scores_dual(data, history=None):
     
     total_tattico = s_inf_tatt + s_move + s_curve_tatt + s_ry + s_tips + s_mom_tatt + boost_panic + move_boost
     
-    # Metriche comuni
     def get_target(score):
         if score >= 3:
             return "15-20+ anni (Aggressivo)"
@@ -361,7 +332,6 @@ def calculate_scores_dual(data, history=None):
     
     regime_strat, regime_desc_strat = get_regime(total_strategico)
     
-    # Divergenza
     divergenza = abs(total_tattico - total_strategico)
     if divergenza >= 3:
         div_level = "FORTE"
@@ -376,7 +346,6 @@ def calculate_scores_dual(data, history=None):
         div_level = "ALLINEATO"
         div_color = "#00ff00"
     
-    # Boost labels
     boost_labels = []
     if boost_mom_label:
         boost_labels.append(boost_mom_label)
@@ -422,7 +391,6 @@ def calculate_scores_dual(data, history=None):
 
 @st.cache_data(ttl=3600)
 def fetch_live_data():
-    """Fetch dati live da FRED e Yahoo Finance."""
     ry_series = fred.get_series('DFII10')
     be_series = fred.get_series('T10YIE')
     unemp = fred.get_series('UNRATE').iloc[-1]
@@ -473,8 +441,21 @@ def fetch_live_data():
     }
 
 
+@st.cache_data(ttl=3600)
+def fetch_etf_history_1y():
+    """Fetch 1 anno di prezzi giornalieri per SHY, IEF, TLT - per grafico base 100."""
+    prices = {}
+    for ticker in ['SHY', 'IEF', 'TLT']:
+        try:
+            h = yf.Ticker(ticker).history(period="1y")
+            if not h.empty:
+                prices[ticker] = h['Close']
+        except:
+            pass
+    return prices
+
+
 def get_etf_prices():
-    """Fetch prezzi correnti ETF."""
     prices = {}
     for ticker in ['IEF', 'TLT', 'SHY']:
         try:
@@ -490,7 +471,6 @@ def get_etf_prices():
 
 @st.cache_data(ttl=3600 * 6, show_spinner=False)
 def fetch_backtest_data(backtest_date_str: str):
-    """Scarica dati storici per backtest."""
     from datetime import timedelta
     
     target_date = pd.Timestamp(backtest_date_str)
@@ -559,8 +539,6 @@ def fetch_backtest_data(backtest_date_str: str):
 # ============================================================================
 
 def display_dual_scores(scores, data):
-    """Visualizza score strategico e tattico affiancati."""
-    
     st.markdown("### 📊 Dual Monitor: Strategico vs Tattico")
     st.caption("Score Strategico (6-12 mesi) | Score Tattico (1-3 mesi con boost panic/momentum)")
     
@@ -646,7 +624,6 @@ def display_dual_scores(scores, data):
 
 
 def get_divergence_explanation(scores, delta):
-    """Spiega la divergenza tra strategico e tattico."""
     if delta >= 3:
         return ("⚡ **Opportunità tattica forte:** Rally 1-3 mesi probabile (panic spike o momentum estremo), "
                 "ma trend 6-12M rimane incerto. Posizione size ridotto con stop.")
@@ -679,21 +656,38 @@ tab1, tab2, tab3 = st.tabs(["📊 Monitor Live", "🔬 Backtest Storico", "📖 
 # TAB 1: MONITOR LIVE
 # ============================================================================
 with tab1:
-    st.title("🛡️ Bond Monitor Strategico v5.2 JOURNAL")
+    st.title("🛡️ Bond Monitor Strategico v5.3")
     st.caption("🔧 Sistema Dual + Diario Automatico (log settimanale ogni Lunedì)")
-    
+
+    # --- MOD 1: EXPANDER LOGICA DEL MODELLO ---
+    with st.expander("📖 Logica del Modello"):
+        st.markdown("""
+        **Score Strategico (6-12 mesi)** — Analisi di *valore*  
+        Valuta se il contesto macro giustifica un aumento di duration.  
+        Driver principali: **Inflazione PCE** (direzione e livello assoluto) e **Real Yield 10Y** (rendimento reale offerto dal mercato).  
+        Score positivo = obbligazionario strutturalmente attraente. Score negativo = cautela sul medio termine.
+
+        **Score Tattico (1-3 mesi)** — Analisi di *reattività*  
+        Cattura opportunità o rischi di breve periodo sovrapposti al segnale strategico.  
+        Driver principali: **Momentum IEF** (forza/debolezza tecnica recente) e **Variazione SPY** (stress equity che genera flight-to-quality).  
+        Boost attivi (Panic, Super-Momentum, Flight-to-Quality) amplificano il segnale quando le condizioni sono estreme.
+
+        **Nota sulla Divergenza**  
+        Se i due score hanno segni opposti (es. Strategico negativo, Tattico positivo), il mercato è in un regime di *transizione o rimbalzo tecnico*:  
+        il movimento tattico potrebbe non avere continuazione strutturale.  
+        In questi casi è consigliabile **ridurre la size** e attendere allineamento prima di aumentare l'esposizione.
+        """)
+
     try:
         d, history = fetch_live_data()
         scores = calculate_scores_dual(d, history)
         etf_prices = get_etf_prices()
         
-        # AUTO-LOG se Lunedì
         if should_log_today():
             with st.spinner("📝 Log automatico settimanale..."):
                 if log_to_sheets(d, scores, etf_prices, manual=False):
                     st.success("✅ Dati loggati automaticamente (Lunedì)")
         
-        # Bottone snapshot manuale
         col_btn, col_space = st.columns([1, 3])
         with col_btn:
             if st.button("📸 Snapshot Manuale", help="Salva snapshot ora (anche se non è Lunedì)"):
@@ -705,12 +699,10 @@ with tab1:
         
         st.divider()
         
-        # Display dual scores
         display_dual_scores(scores, d)
         
         st.divider()
         
-        # Metriche aggiuntive
         strat = scores['strategico']
         
         r1, r2, r3 = st.columns(3)
@@ -734,7 +726,68 @@ with tab1:
         with f3:
             st.write(f"**IEF Mom:** {d['ief_mom']:.2%}")
             st.write(f"**SPY Var:** {d['spy_var']:.2%}")
-        
+
+        # --- MOD 2: GRAFICO MACRO UNIFICATO (Real Yield + Breakeven) ---
+        st.divider()
+        st.subheader("📈 Real Yield & Breakeven Inflation")
+
+        fig_macro = go.Figure()
+        fig_macro.add_trace(go.Scatter(
+            x=d['ry_hist'].index,
+            y=d['ry_hist'].values,
+            name="Real Yield 10Y",
+            line=dict(color='#00ff00', width=2)
+        ))
+        fig_macro.add_trace(go.Scatter(
+            x=d['be_hist'].index,
+            y=d['be_hist'].values,
+            name="Breakeven Inflation 10Y",
+            line=dict(color='#00bfff', width=2, dash='dot')
+        ))
+        fig_macro.update_layout(
+            template="plotly_dark",
+            height=300,
+            margin=dict(l=20, r=20, t=30, b=20),
+            yaxis_title="%",
+            hovermode='x unified',
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig_macro, use_container_width=True)
+
+        # --- MOD 3: GRAFICO ETF BASE 100 (1 anno) ---
+        st.subheader("📊 Performance Relativa ETF — Base 100 (1 anno)")
+
+        etf_hist = fetch_etf_history_1y()
+
+        if len(etf_hist) >= 2:
+            fig_etf = go.Figure()
+            colors = {'SHY': '#00bfff', 'IEF': '#ffa500', 'TLT': '#00ff00'}
+
+            for ticker, color in colors.items():
+                if ticker in etf_hist:
+                    series = etf_hist[ticker].dropna()
+                    base = series.iloc[0]
+                    normalized = (series / base - 1) * 100
+                    fig_etf.add_trace(go.Scatter(
+                        x=normalized.index,
+                        y=normalized.values,
+                        name=ticker,
+                        line=dict(color=color, width=2)
+                    ))
+
+            fig_etf.add_hline(y=0, line_dash="dash", line_color="#555", line_width=1)
+            fig_etf.update_layout(
+                template="plotly_dark",
+                height=300,
+                margin=dict(l=20, r=20, t=30, b=20),
+                yaxis_title="Variazione % da inizio periodo",
+                hovermode='x unified',
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_etf, use_container_width=True)
+        else:
+            st.info("Dati ETF non disponibili")
+
         # Debug expander
         with st.expander("🔧 Debug — Breakdown Completo"):
             pce_pct = scores['pce_current'] * 100
@@ -748,7 +801,6 @@ with tab1:
                 regime_inf = f"🔵 Rischio Deflazione ({pce_pct:.1f}%)"
             
             st.markdown(f"**Regime Inflazionistico:** {regime_inf}")
-            
             st.markdown("---")
             st.markdown("**Score Strategico:**")
             
@@ -784,36 +836,6 @@ with tab1:
             st.write(f"Momentum Score: {tatt['s_mom']} (vs {strat['s_mom']} strategico)")
             st.write(f"Boost Panic: +{tatt['boost_panic']}")
             st.write(f"Boost MOVE: +{tatt['boost_move']}")
-        
-        # Grafici
-        st.divider()
-        g1, g2 = st.columns(2)
-        
-        with g1:
-            fig_ry = go.Figure()
-            fig_ry.add_trace(go.Scatter(
-                x=d['ry_hist'].index, y=d['ry_hist'].values,
-                name="Real Yield", line=dict(color='#00ff00')
-            ))
-            fig_ry.update_layout(
-                title="Real Yield 10Y",
-                template="plotly_dark", height=250,
-                margin=dict(l=20, r=20, t=40, b=20)
-            )
-            st.plotly_chart(fig_ry, use_container_width=True)
-        
-        with g2:
-            fig_be = go.Figure()
-            fig_be.add_trace(go.Scatter(
-                x=d['be_hist'].index, y=d['be_hist'].values,
-                name="Breakeven", line=dict(color='#00bfff')
-            ))
-            fig_be.update_layout(
-                title="Breakeven Inflation",
-                template="plotly_dark", height=250,
-                margin=dict(l=20, r=20, t=40, b=20)
-            )
-            st.plotly_chart(fig_be, use_container_width=True)
     
     except Exception as e:
         st.error(f"❌ Errore: {e}")
@@ -891,7 +913,6 @@ with tab3:
     st.title("📖 Diario Strategico")
     st.caption("Storico segnali settimanali con performance ETF e statistiche")
     
-    # Leggi dati da Google Sheets
     df_journal = read_from_sheets()
     
     if df_journal is None or len(df_journal) == 0:
@@ -900,7 +921,6 @@ with tab3:
     else:
         st.success(f"✅ {len(df_journal)} snapshot salvati")
         
-        # Filtri
         st.markdown("### 🔍 Filtri")
         col_f1, col_f2 = st.columns(2)
         
@@ -917,7 +937,6 @@ with tab3:
                 ["Tutti", "Aggressivo (≥3)", "Moderato (1-2)", "Neutrale (0)", "Difensivo (≤-1)"]
             )
         
-        # Applica filtri
         df_filtered = df_journal.copy()
         
         if len(date_range) == 2:
@@ -938,10 +957,8 @@ with tab3:
         
         st.divider()
         
-        # Tabella interattiva
         st.markdown("### 📊 Storico Completo")
         
-        # Format per display
         df_display = df_filtered.copy()
         df_display['Data'] = df_display['Data'].dt.strftime('%Y-%m-%d')
         
@@ -952,7 +969,6 @@ with tab3:
             height=400
         )
         
-        # Export CSV
         csv = df_display.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="📥 Download CSV",
@@ -963,19 +979,15 @@ with tab3:
         
         st.divider()
         
-        # Grafico Equity Curve
         st.markdown("### 📈 Equity Curve (Performance Simulata)")
         
         if len(df_filtered) > 1:
-            # Calcola performance cumulative
             df_chart = df_filtered.sort_values('Data').copy()
             
-            # Performance % change per ogni ETF
             df_chart['IEF_ret'] = df_chart['IEF_Price'].pct_change().fillna(0)
             df_chart['TLT_ret'] = df_chart['TLT_Price'].pct_change().fillna(0)
             df_chart['SHY_ret'] = df_chart['SHY_Price'].pct_change().fillna(0)
             
-            # Equity curve cumulative
             df_chart['IEF_equity'] = (1 + df_chart['IEF_ret']).cumprod()
             df_chart['TLT_equity'] = (1 + df_chart['TLT_ret']).cumprod()
             df_chart['SHY_equity'] = (1 + df_chart['SHY_ret']).cumprod()
@@ -1018,32 +1030,27 @@ with tab3:
         
         st.divider()
         
-        # Statistiche Aggregate
         st.markdown("### 📊 Statistiche Aggregate")
         
         col_s1, col_s2, col_s3 = st.columns(3)
         
         with col_s1:
             st.metric("Total Snapshot", len(df_filtered))
-            
             avg_strat = df_filtered['Strategico_Score'].mean()
             st.metric("Avg Score Strategico", f"{avg_strat:.1f}")
         
         with col_s2:
             avg_tatt = df_filtered['Tattico_Score'].mean()
             st.metric("Avg Score Tattico", f"{avg_tatt:.1f}")
-            
             avg_div = df_filtered['Divergenza'].mean()
             st.metric("Avg Divergenza", f"{avg_div:.1f}")
         
         with col_s3:
-            # Distribution score strategico
             agg_count = df_filtered['Strategico_Score'].value_counts().to_dict()
             st.write("**Distribuzione Score Strategico:**")
             for score in sorted(agg_count.keys(), reverse=True):
                 st.caption(f"Score {score:+d}: {agg_count[score]} volte")
         
-        # Statistiche aggiuntive
         with st.expander("📈 Statistiche Dettagliate"):
             st.markdown("#### Macro Indicators - Media")
             
@@ -1062,5 +1069,5 @@ with tab3:
                 st.metric("SPY Variation", f"{df_filtered['SPY_Var'].mean():.3f}%")
 
 st.markdown("---")
-st.caption(f"🛡️ Bond Monitor v5.2 JOURNAL | {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+st.caption(f"🛡️ Bond Monitor v5.3 | {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 st.caption("⚙️ Dual System + Diario Automatico (Lunedì) + Snapshot Manuale | Non costituisce consulenza finanziaria")
